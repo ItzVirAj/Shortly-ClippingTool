@@ -1423,15 +1423,14 @@ function App() {
   // wraps to two lines in a 5-up bar on a 360px phone.
   const navItems = [
     { id: 'dashboard', ord: '01', icon: LayoutDashboard, label: 'Clip Generator', short: 'clips', primary: true },
-    // Cloud only: it runs on the managed pipeline and the Upload-Post connection.
-    ...(billingEnabled ? [{ id: 'autopilot', ord: '02', icon: Rocket, label: 'Autopilot', short: 'autopilot', isNew: true }] : []),
+    { id: 'autopilot', ord: '02', icon: Rocket, label: 'Autopilot', short: 'autopilot', isNew: true },
     { id: 'saasshorts', ord: '03', icon: Sparkles, label: 'AI Shorts', short: 'ai shorts', byok: true, primary: true },
     { id: 'ai-agent', ord: '04', icon: Bot, label: 'AI Agent', short: 'agent', byok: true },
     { id: 'ugc-gallery', ord: '05', icon: LayoutGrid, label: 'UGC Gallery', short: 'gallery', primary: true },
     { id: 'thumbnails', ord: '06', icon: Image, label: 'YouTube Studio', short: 'studio', primary: true },
     { id: 'thumbnail-maker', ord: '06b', icon: Image, label: 'Thumbnail Maker', short: 'thumbs', primary: true },
     { id: 'editor', ord: '07', icon: Film, label: 'Editor', short: 'editor', primary: true },
-    ...(billingEnabled && isSignedIn ? [{ id: 'history', ord: '08', icon: History, label: 'History', short: 'history' }] : []),
+    { id: 'history', ord: '08', icon: History, label: 'History', short: 'history' },
     { id: 'settings', ord: '09', icon: Settings, label: 'Settings', short: 'settings' },
   ];
   const activeNav = navItems.find((n) => n.id === activeTab);
@@ -2176,7 +2175,7 @@ function App() {
           {activeTab === 'autopilot' && (
             <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
               <div className="max-w-6xl mx-auto p-4 sm:p-6 md:p-8">
-                {isSignedIn ? (
+                {isSignedIn || !billingEnabled ? (
                   <AutopilotTab
                     onOpenProject={restoreProject}
                     onUpgrade={() => (isManaged ? openUpsell({ source: 'autopilot' }) : setShowPlanChoice(true))}

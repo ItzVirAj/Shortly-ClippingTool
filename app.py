@@ -5773,7 +5773,27 @@ _JOB_ID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 @app.post("/api/projects/{job_id}/restore")
 async def restore_project(job_id: str, request: Request):
     if not BILLING_ENABLED:
-        raise HTTPException(status_code=404, detail="Not found")
+        _recover_jobs_from_disk()
+        if job_id not in jobs:
+            raise HTTPException(status_code=404, detail="Project not found")
+        job = jobs[job_id]
+        meta_files = glob.glob(os.path.join(OUTPUT_DIR, job_id, "*_metadata.json"))
+        proj_title = "Project"
+        proj_state = job.get("project_state")
+        if meta_files:
+            try:
+                with open(meta_files[0], 'r', encoding='utf-8') as f:
+                    mdata = json.load(f)
+                proj_title = mdata.get("title") or os.path.basename(meta_files[0]).replace('_metadata.json', '')
+            except Exception:
+                pass
+        return {
+            "job_id": job_id,
+            "status": "completed",
+            "result": job.get('result') or {},
+            "project_state": proj_state,
+            "title": proj_title,
+        }
     from sqlalchemy import select
     from cloud.auth import get_current_user_required
     from cloud.models import Project
@@ -10637,6 +10657,127 @@ def _list_generated_clips():
 
     clips.sort(key=lambda x: x["_mtime"], reverse=True)
     return clips
+
+
+if not BILLING_ENABLED:
+    @app.get("/api/projects")
+    async def local_list_projects():
+        """List local re-openable projects from OUTPUT_DIR."""
+        _recover_jobs_from_disk()
+        projs = []
+        if os.path.exists(OUTPUT_DIR):
+            for job_id in os.listdir(OUTPUT_DIR):
+                job_path = os.path.join(OUTPUT_DIR, job_id)
+                if not os.path.isdir(job_path):
+                    continue
+                json_files = glob.glob(os.path.join(job_path, "*_metadata.json"))
+                if not json_files:
+                    continue
+                meta_file = json_files[0]
+                try:
+                    with open(meta_file, 'r', encoding='utf-8') as f:
+                        meta = json.load(f)
+                    base_name = os.path.basename(meta_file).replace('_metadata.json', '')
+                    title = meta.get('title') or base_name
+                    clips = meta.get('shorts') or []
+                    mtime = os.path.getmtime(meta_file)
+                    projs.append({
+                        "job_id": job_id,
+                        "title": title,
+                        "clip_count": len(clips),
+                        "size_bytes": 0,
+                        "created_at": datetime.fromtimestamp(mtime, timezone.utc).isoformat(),
+                        "updated_at": datetime.fromtimestamp(mtime, timezone.utc).isoformat(),
+                    })
+                except Exception:
+                    pass
+        projs.sort(key=lambda p: p["created_at"], reverse=True)
+        return {"projects": projs}
+
+    @app.get("/api/history")
+    async def local_history():
+        """List locally generated clips for the History tab."""
+        items = []
+        clips = _list_generated_clips()
+        for c in clips:
+            parts = c["id"].split(":")
+            job_id = parts[0]
+            clip_idx = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+            safe_name = os.path.basename(c["url"])
+            items.append({
+                "id": c["id"],
+                "job_id": job_id,
+                "clip_index": clip_idx,
+                "title": c["name"],
+                "created_at": c["createdAt"],
+                "size_bytes": 0,
+                "filename": safe_name,
+                "view_url": c["url"],
+                "download_url": c["url"],
+            })
+        return {"videos": items}
+
+    _AUTOPILOT_LOCAL_FILE = os.path.join(OUTPUT_DIR, ".autopilot_settings.json")
+
+    def _get_local_autopilot_settings():
+        if os.path.exists(_AUTOPILOT_LOCAL_FILE):
+            try:
+                with open(_AUTOPILOT_LOCAL_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {
+            "enabled": False,
+            "autopublish": False,
+            "clips_to_publish": 3,
+            "max_minutes": 30,
+            "publish_hour": 18,
+            "publish_platforms": ["youtube"],
+            "timezone": "UTC",
+        }
+
+    @app.get("/api/autopilot")
+    async def get_local_autopilot():
+        settings = _get_local_autopilot_settings()
+        return {
+            "eligible": True,
+            "plan": "pro",
+            "settings": settings,
+            "accounts": {},
+            "youtube": None,
+            "twitch": None,
+            "twitch_available": True,
+            "limits": {
+                "daily_auto": 20,
+                "max_minutes_choices": [10, 15, 20, 30, 45, 60, 90],
+                "max_clips_to_publish": 5,
+                "platforms": ["tiktok", "instagram", "youtube"],
+            },
+            "runs": [],
+        }
+
+    @app.put("/api/autopilot")
+    async def put_local_autopilot(request: Request):
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        cur = _get_local_autopilot_settings()
+        cur.update(payload)
+        try:
+            with open(_AUTOPILOT_LOCAL_FILE, "w", encoding="utf-8") as f:
+                json.dump(cur, f, indent=2)
+        except Exception:
+            pass
+        return {"settings": cur}
+
+    @app.get("/api/autopilot/videos")
+    async def list_local_autopilot_videos():
+        return {"videos": [], "error": None}
+
+    @app.post("/api/autopilot/run")
+    async def run_local_autopilot(request: Request):
+        return {"status": "skipped", "reason": "No connected accounts"}
 
 
 @app.get("/api/editor/clips")

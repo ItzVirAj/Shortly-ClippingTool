@@ -93,11 +93,11 @@ export default function Sidebar({
       id: 'ai-studio',
       label: 'AI Studio',
       icon: Sparkles,
-      badge: { text: billingEnabled ? '5' : '4', color: 'orange' },
+      badge: { text: '5', color: 'orange' },
       items: [
         { id: 'saasshorts', label: 'AI Shorts', badge: 'BYOK' },
         { id: 'ai-agent', label: 'AI Agent', badge: 'BYOK' },
-        ...(billingEnabled ? [{ id: 'autopilot', label: 'Autopilot', badge: 'NEW', badgeColor: 'mint' }] : []),
+        { id: 'autopilot', label: 'Autopilot', badge: 'NEW', badgeColor: 'mint' },
         { id: 'thumbnails', label: 'YouTube Studio' },
         { id: 'thumbnail-maker', label: 'Thumbnail Maker', badge: 'AI' },
       ],
@@ -117,7 +117,7 @@ export default function Sidebar({
       badge: null,
       items: [
         { id: 'ugc-gallery', label: 'UGC Gallery' },
-        ...(billingEnabled && isSignedIn ? [{ id: 'history', label: 'History' }] : []),
+        { id: 'history', label: 'History' },
       ],
     },
     {
