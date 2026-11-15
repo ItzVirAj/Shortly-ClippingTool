@@ -1,0 +1,135 @@
+/**
+ * Text presets and font configuration for the video editor.
+ * Font options are strictly families supported by the backend (hooks.py, subtitles.py, fonts/).
+ */
+
+export const FONT_OPTIONS = [
+  { value: 'Montserrat', label: 'Montserrat', stack: "'Montserrat', system-ui, -apple-system, sans-serif" },
+  { value: 'Anton', label: 'Anton', stack: "'Anton', Impact, 'Arial Black', sans-serif" },
+  { value: 'Noto Serif', label: 'Noto Serif', stack: "'Noto Serif', 'Times New Roman', Georgia, serif" },
+  { value: 'Verdana', label: 'Verdana (preview only)', stack: "Verdana, Geneva, sans-serif" },
+];
+
+export const TEXT_PRESETS = [
+  {
+    id: 'preset_title',
+    label: 'Title',
+    duration: 3,
+    props: {
+      text: 'Title Text',
+      style: {
+        fontFamily: 'Montserrat',
+        fontSize: 96,
+        fontWeight: 900,
+        italic: false,
+        color: '#FFFFFF',
+        align: 'center',
+        lineHeight: 1.2,
+        letterSpacing: 0,
+        uppercase: false,
+        boxWidth: 900,
+      },
+      bg: { enabled: false, color: '#000000', opacity: 100, padding: 24, radius: 24 },
+      stroke: { enabled: true, color: '#000000', width: 6 },
+      shadow: { enabled: false, color: '#000000', blur: 8, offsetX: 0, offsetY: 4 },
+      transform: { x: 0, y: 0, scale: 100, rotation: 0 },
+    },
+  },
+  {
+    id: 'preset_subtitle',
+    label: 'Subtitle',
+    duration: 3,
+    props: {
+      text: 'Subtitle Here',
+      style: {
+        fontFamily: 'Montserrat',
+        fontSize: 56,
+        fontWeight: 700,
+        italic: false,
+        color: '#FFFFFF',
+        align: 'center',
+        lineHeight: 1.2,
+        letterSpacing: 0,
+        uppercase: false,
+        boxWidth: 900,
+      },
+      bg: { enabled: false, color: '#000000', opacity: 100, padding: 24, radius: 24 },
+      stroke: { enabled: false, color: '#000000', width: 4 },
+      shadow: { enabled: true, color: '#000000', blur: 8, offsetX: 0, offsetY: 4 },
+      transform: { x: 0, y: 0, scale: 100, rotation: 0 },
+    },
+  },
+  {
+    id: 'preset_body',
+    label: 'Body',
+    duration: 4,
+    props: {
+      text: 'Body text with background',
+      style: {
+        fontFamily: 'Montserrat',
+        fontSize: 44,
+        fontWeight: 400,
+        italic: false,
+        color: '#FFFFFF',
+        align: 'center',
+        lineHeight: 1.2,
+        letterSpacing: 0,
+        uppercase: false,
+        boxWidth: 900,
+      },
+      bg: { enabled: true, color: '#000000', opacity: 60, padding: 20, radius: 16 },
+      stroke: { enabled: false, color: '#000000', width: 4 },
+      shadow: { enabled: false, color: '#000000', blur: 8, offsetX: 0, offsetY: 4 },
+      transform: { x: 0, y: 0, scale: 100, rotation: 0 },
+    },
+  },
+  {
+    id: 'preset_pill',
+    label: 'Hook pill',
+    duration: 4,
+    props: {
+      text: 'ATTENTION HOOK',
+      style: {
+        fontFamily: 'Montserrat',
+        fontSize: 56,
+        fontWeight: 700,
+        italic: false,
+        color: '#000000',
+        align: 'center',
+        lineHeight: 1.2,
+        letterSpacing: 0,
+        uppercase: false,
+        boxWidth: 900,
+      },
+      bg: { enabled: true, color: '#FFFFFF', opacity: 100, padding: 28, radius: 60 },
+      stroke: { enabled: false, color: '#000000', width: 4 },
+      shadow: { enabled: false, color: '#000000', blur: 8, offsetX: 0, offsetY: 4 },
+      transform: { x: 0, y: 0, scale: 100, rotation: 0 },
+    },
+  },
+  {
+    id: 'preset_caption',
+    label: 'Caption',
+    duration: 2,
+    props: {
+      text: 'FAST CAPTION',
+      style: {
+        fontFamily: 'Anton',
+        fontSize: 72,
+        fontWeight: 900,
+        italic: false,
+        color: '#FFE500',
+        align: 'center',
+        lineHeight: 1.2,
+        letterSpacing: 0,
+        uppercase: true,
+        boxWidth: 900,
+      },
+      bg: { enabled: false, color: '#000000', opacity: 100, padding: 24, radius: 24 },
+      stroke: { enabled: true, color: '#000000', width: 8 },
+      shadow: { enabled: false, color: '#000000', blur: 8, offsetX: 0, offsetY: 4 },
+      transform: { x: 0, y: 0, scale: 100, rotation: 0 },
+    },
+  },
+];
+

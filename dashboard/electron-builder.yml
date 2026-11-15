@@ -1,0 +1,32 @@
+appId: app.shortly.desktop
+productName: Shortly
+directories:
+  output: dist-electron
+  buildResources: build
+files:
+  - dist/**/*
+  - electron/**/*
+  - package.json
+extraResources:
+  - from: ../dist/shortly-backend
+    to: sidecar
+    filter:
+      - "**/*"
+  - from: ../bin
+    to: bin
+    filter:
+      - "*.exe"
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Shortly
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico

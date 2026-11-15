@@ -1,0 +1,76 @@
+# User ignored
+docs/
+
+# Binaries and build outputs
+bin/*.exe
+dist/
+build/
+dashboard/dist/
+dashboard/dist-electron/
+node_modules/
+dashboard/node_modules/
+.pytest_cache/
+*.egg-info/
+*.exe
+
+# Video files
+*.mp4
+*.webm
+*.mov
+*.mkv
+
+# YOLO model
+*.pt
+
+# Python virtual environment
+.venv/
+__pycache__/
+*.pyc
+
+# Temporary files / runtime dirs
+temp_*
+uploads/
+downloads/
+videos/
+output/
+editor_media/
+editor_exports/
+editor_projects/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Secrets
+.env
+.shortly_yt_config.json
+.shortly_yt_tokens.json
+*.yt_creds
+client_secret*.json
+
+# Generated metadata
+*_metadata.json
+
+# Cache dirs
+.cache/
+.config/
+# Multi-agent Skills
+.agents/
+.agent/
+.claude/
+# skills/ holds third-party installs (symlinks); our own published skill is versioned
+skills/*
+!skills/openshorts/
+skills-lock.json
+
+
+# Cloud env example kept local only (avoid leaking infra hints)
+.env.cloud.example
+.worktrees
+
+# Instrucciones locales con datos de infra (repo público)
+CLAUDE.local.md
+
+# Rust build output
+osrender/target/

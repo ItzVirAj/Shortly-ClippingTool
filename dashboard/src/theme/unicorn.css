@@ -1,0 +1,738 @@
+/* =========================================================================
+   Unicorn Studio Dark Theme with Violet Accent
+   ========================================================================= */
+
+.theme-unicorn,
+body.theme-unicorn {
+  /* TOKENS */
+  --uni-void: #08080a;
+  --uni-panel: #0d0d12;
+  --uni-card: #17171c;
+  --uni-elevated: #25252d;
+  --uni-iron: #31313a;
+  --uni-ash: #62626f;
+  --uni-fog: #8b8e9c;
+  --uni-pearl: #aeaac0;
+  --uni-chalk: #dad7de;
+  --uni-violet: #ab8ff1;
+  --uni-iris: #8960f0;
+  --uni-aurora: radial-gradient(circle, rgb(142, 108, 228), rgb(114, 79, 201));
+  --uni-radius-card: 10px;
+  --uni-radius-ctl: 3px;
+
+  /* Muted Semantic Colors (~60% saturation) */
+  --uni-success: #75b385;
+  --uni-warning: #dcb360;
+  --uni-danger: #db6e59;
+
+  /* Theme variable remapping */
+  --color-paper: var(--uni-void);
+  --color-paper-2: var(--uni-panel);
+  --color-paper-3: var(--uni-card);
+  --color-ink: #ffffff;
+  --color-ink-2: var(--uni-pearl);
+  --color-muted: var(--uni-fog);
+  --color-accent: var(--uni-violet);
+  --color-accent-ink: var(--uni-void);
+  --color-focus: var(--uni-violet);
+  --color-rule: rgba(174, 170, 192, 0.18);
+  --color-rule-2: var(--uni-iron);
+  --color-ok: var(--uni-success);
+  --color-warn: var(--uni-warning);
+  --color-danger: var(--uni-danger);
+  --radius-card: var(--uni-radius-card);
+  --radius-input: var(--uni-radius-ctl);
+
+  /* Root Canvas & Text (Rule 1 & 2) */
+  background-color: var(--uni-void) !important;
+  color: var(--uni-pearl) !important;
+  font-size: 16px;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+}
+
+/* Scrollbars */
+.theme-unicorn,
+.theme-unicorn * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--uni-iron) transparent;
+}
+.theme-unicorn ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.theme-unicorn ::-webkit-scrollbar-track {
+  background: transparent;
+}
+.theme-unicorn ::-webkit-scrollbar-thumb {
+  background-color: var(--uni-iron);
+  border-radius: 3px;
+}
+
+/* Headings (Rule 2) */
+.theme-unicorn h1,
+.theme-unicorn h2,
+.theme-unicorn h3,
+.theme-unicorn h4,
+.theme-unicorn h5,
+.theme-unicorn h6,
+.theme-unicorn .font-display {
+  color: #ffffff !important;
+  line-height: 1.0 !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.02em !important;
+}
+.theme-unicorn h1 {
+  letter-spacing: 0.02em !important;
+}
+.theme-unicorn h2 {
+  letter-spacing: 0.02em !important;
+}
+
+/* Text Hierarchy */
+.theme-unicorn p,
+.theme-unicorn .text-ink2 {
+  color: var(--uni-pearl) !important;
+}
+.theme-unicorn .text-muted,
+.theme-unicorn .eyebrow,
+.theme-unicorn .readout,
+.theme-unicorn .text-zinc-400 {
+  color: var(--uni-fog) !important;
+}
+.theme-unicorn .text-ink,
+.theme-unicorn .text-zinc-100,
+.theme-unicorn .text-zinc-200 {
+  color: var(--uni-chalk) !important;
+}
+
+/* Surfaces: Canvas, Sections, Cards, Hover (Global Rule 1) */
+.theme-unicorn .bg-paper,
+.theme-unicorn .bg-zinc-950 {
+  background-color: var(--uni-void) !important;
+}
+.theme-unicorn .bg-paper2,
+.theme-unicorn .bg-zinc-900,
+.theme-unicorn .split-view-panel {
+  background-color: var(--uni-panel) !important;
+  border-color: rgba(174, 170, 192, 0.18) !important;
+}
+.theme-unicorn .card,
+.theme-unicorn .glass-panel,
+.theme-unicorn .bg-paper3,
+.theme-unicorn .bg-zinc-850,
+.theme-unicorn .bg-zinc-800 {
+  background: var(--uni-card) !important;
+  border: 1px solid rgba(174, 170, 192, 0.18) !important;
+  border-radius: var(--uni-radius-card) !important;
+  box-shadow: none !important;
+}
+.theme-unicorn .hover\:bg-paper3:hover,
+.theme-unicorn .hover\:bg-zinc-800:hover,
+.theme-unicorn .hover\:bg-zinc-700:hover,
+.theme-unicorn .card-hover:hover {
+  background-color: var(--uni-elevated) !important;
+}
+
+/* Floating Panels and Popovers */
+.theme-unicorn [role="menu"],
+.theme-unicorn [role="listbox"],
+.theme-unicorn .shadow-2xl,
+.theme-unicorn div.w-48.rounded-lg.bg-zinc-900 {
+  background-color: var(--uni-elevated) !important;
+  border: 1px solid rgba(174, 170, 192, 0.18) !important;
+  box-shadow: rgba(0, 0, 0, 0.4) 0 2px 4px -1.5px !important;
+  border-radius: var(--uni-radius-card) !important;
+}
+
+/* Header and Navigation (Global Rules) */
+.theme-unicorn header,
+.theme-unicorn header.bg-paper {
+  background-color: transparent !important;
+  border-bottom: none !important;
+}
+.theme-unicorn aside:not(.app-sidebar),
+.theme-unicorn .md\:flex.w-20,
+.theme-unicorn nav.border-r {
+  background-color: transparent !important;
+  border-right: 1px solid rgba(174, 170, 192, 0.18) !important;
+}
+.theme-unicorn .app-sidebar {
+  background-color: #111216 !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+.theme-unicorn .app-sidebar button {
+  border-bottom: none !important;
+}
+.theme-unicorn .app-sidebar nav button {
+  border-bottom: none !important;
+}
+.theme-unicorn .app-sidebar a,
+.theme-unicorn .app-sidebar a:hover {
+  text-decoration: none !important;
+  border-bottom: none !important;
+}
+.theme-unicorn nav:not(.app-sidebar nav) button {
+  color: var(--uni-pearl) !important;
+  border-radius: var(--uni-radius-ctl) !important;
+}
+.theme-unicorn nav button:hover {
+  background-color: var(--uni-elevated) !important;
+  color: var(--uni-chalk) !important;
+}
+.theme-unicorn nav button.bg-paper3,
+.theme-unicorn nav button[aria-current="page"] {
+  background-color: var(--uni-elevated) !important;
+  color: var(--uni-chalk) !important;
+  border-bottom: 1px solid var(--uni-violet) !important;
+}
+.theme-unicorn nav button[aria-current="page"] svg,
+.theme-unicorn nav button.bg-paper3 svg {
+  color: var(--uni-violet) !important;
+}
+.theme-unicorn nav button span.bg-brass {
+  background-color: var(--uni-violet) !important;
+}
+
+/* Radii Controls (Global Rule 3) */
+.theme-unicorn button,
+.theme-unicorn input,
+.theme-unicorn select,
+.theme-unicorn textarea,
+.theme-unicorn .rounded-input,
+.theme-unicorn .rounded-lg,
+.theme-unicorn .rounded-md,
+.theme-unicorn .rounded-xl {
+  border-radius: var(--uni-radius-ctl) !important;
+}
+.theme-unicorn .card,
+.theme-unicorn .glass-panel,
+.theme-unicorn [role="dialog"] > div,
+.theme-unicorn div.rounded-xl.border {
+  border-radius: var(--uni-radius-card) !important;
+}
+.theme-unicorn .rounded-full:not(.uni-circle) {
+  border-radius: var(--uni-radius-ctl) !important;
+}
+
+.theme-unicorn .btn-primary:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
+.theme-unicorn button[type="submit"]:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
+.theme-unicorn button.bg-emerald-600:not(.rounded-full):not([role="switch"]):not([data-icon-btn]):not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
+.theme-unicorn button.bg-emerald-500:not(.rounded-full):not([role="switch"]):not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
+.theme-unicorn button.bg-brass:not(.rounded-full):not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent) {
+  background: var(--uni-chalk) !important;
+  color: var(--uni-void) !important;
+  font-weight: 500 !important;
+  font-size: 14px !important;
+  padding: 8px 14px !important;
+  border-radius: var(--uni-radius-ctl) !important;
+  box-shadow: #31313a 0 -1px 0 0 !important;
+  border: none !important;
+  transition: background-color 0.15s ease !important;
+}
+.theme-unicorn .btn-primary:hover:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
+.theme-unicorn button[type="submit"]:hover:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
+.theme-unicorn button.bg-emerald-600:hover:not(.rounded-full):not([role="switch"]):not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
+.theme-unicorn button.bg-emerald-500:hover:not(.rounded-full):not([role="switch"]):not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
+.theme-unicorn button.bg-brass:hover:not(.rounded-full):not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent) {
+  background: rgb(200, 197, 205) !important;
+  color: var(--uni-void) !important;
+}
+.theme-unicorn .btn-primary:disabled:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
+.theme-unicorn button[type="submit"]:disabled:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
+.theme-unicorn button.bg-emerald-600:disabled:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
+.theme-unicorn button.bg-emerald-500:disabled:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent) {
+  background: var(--uni-elevated) !important;
+  color: var(--uni-ash) !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+}
+
+/* Primary Action Buttons - Custom Brand Accent #e31084 */
+.theme-unicorn button[data-tutorial="generate"],
+.theme-unicorn button.btn-generate-clips,
+button.btn-generate-clips,
+.theme-unicorn .btn-brand-accent,
+.theme-unicorn button.btn-brand-accent,
+.theme-unicorn a.btn-brand-accent,
+button.btn-brand-accent,
+a.btn-brand-accent {
+  background: #e31084 !important;
+  color: #ffffff !important;
+  border-color: #e31084 !important;
+  box-shadow: 0 4px 14px 0 rgba(227, 16, 132, 0.35) !important;
+}
+.theme-unicorn button[data-tutorial="generate"]:hover,
+.theme-unicorn button.btn-generate-clips:hover,
+button.btn-generate-clips:hover,
+.theme-unicorn .btn-brand-accent:hover,
+.theme-unicorn button.btn-brand-accent:hover,
+.theme-unicorn a.btn-brand-accent:hover,
+button.btn-brand-accent:hover,
+a.btn-brand-accent:hover {
+  background: #c80d73 !important;
+  color: #ffffff !important;
+  border-color: #c80d73 !important;
+}
+.theme-unicorn button[data-tutorial="generate"]:disabled,
+.theme-unicorn button.btn-generate-clips:disabled,
+button.btn-generate-clips:disabled,
+.theme-unicorn .btn-brand-accent:disabled,
+.theme-unicorn button.btn-brand-accent:disabled,
+button.btn-brand-accent:disabled {
+  background: #e31084 !important;
+  color: rgba(255, 255, 255, 0.7) !important;
+  opacity: 0.45 !important;
+  cursor: not-allowed !important;
+}
+
+/* Secondary Button (Rule 5) */
+.theme-unicorn .btn-ghost,
+.theme-unicorn .btn-quiet,
+.theme-unicorn .btn-secondary,
+.theme-unicorn button.border-rule,
+.theme-unicorn button.border-zinc-700 {
+  background-color: transparent !important;
+  border: 1px solid rgba(174, 170, 192, 0.6) !important;
+  color: var(--uni-pearl) !important;
+  border-radius: var(--uni-radius-ctl) !important;
+  transition: background-color 0.15s ease, border-color 0.15s ease !important;
+}
+.theme-unicorn .btn-ghost:hover,
+.theme-unicorn .btn-quiet:hover,
+.theme-unicorn .btn-secondary:hover,
+.theme-unicorn button.border-rule:hover,
+.theme-unicorn button.border-zinc-700:hover {
+  background-color: var(--uni-elevated) !important;
+  border-color: rgba(174, 170, 192, 0.8) !important;
+  color: var(--uni-chalk) !important;
+}
+
+/* Danger Button */
+.theme-unicorn .btn-danger,
+.theme-unicorn button.text-red-400,
+.theme-unicorn button.text-red-500,
+.theme-unicorn button.border-red-900\/50,
+.theme-unicorn button.bg-red-950\/40 {
+  background-color: transparent !important;
+  border: 1px solid var(--uni-danger) !important;
+  color: var(--uni-danger) !important;
+  border-radius: var(--uni-radius-ctl) !important;
+}
+.theme-unicorn .btn-danger:hover,
+.theme-unicorn button.text-red-400:hover,
+.theme-unicorn button.text-red-500:hover,
+.theme-unicorn button.border-red-900\/50:hover {
+  background-color: rgba(219, 110, 89, 0.1) !important;
+  color: var(--uni-danger) !important;
+}
+
+/* Inputs & Textareas (Rule 7) */
+.theme-unicorn input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.theme-unicorn textarea,
+.theme-unicorn select,
+.theme-unicorn .input-field,
+.theme-unicorn input.bg-zinc-800,
+.theme-unicorn select.bg-zinc-800 {
+  background-color: var(--uni-card) !important;
+  border: 1px solid var(--uni-fog) !important;
+  color: var(--uni-pearl) !important;
+  border-radius: var(--uni-radius-ctl) !important;
+  outline: none !important;
+}
+.theme-unicorn input::placeholder,
+.theme-unicorn textarea::placeholder,
+.theme-unicorn .input-field::placeholder {
+  color: var(--uni-ash) !important;
+  opacity: 1 !important;
+}
+.theme-unicorn input:focus:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.theme-unicorn textarea:focus,
+.theme-unicorn select:focus,
+.theme-unicorn .input-field:focus,
+.theme-unicorn input.bg-zinc-800:focus,
+.theme-unicorn select.bg-zinc-800:focus {
+  border-color: var(--uni-violet) !important;
+  box-shadow: 0 0 0 2px rgba(171, 143, 241, 0.25) !important;
+}
+
+/* Violet Accent Replacements (Rule 6) */
+.theme-unicorn .text-brass,
+.theme-unicorn [class*="text-brass"],
+.theme-unicorn .text-emerald-400,
+.theme-unicorn .text-emerald-500,
+.theme-unicorn .text-emerald-600 {
+  color: var(--uni-violet) !important;
+}
+.theme-unicorn .text-brass:hover,
+.theme-unicorn [class*="text-brass"]:hover,
+.theme-unicorn .hover\:text-emerald-400:hover,
+.theme-unicorn .hover\:text-emerald-300:hover {
+  color: var(--uni-iris) !important;
+}
+.theme-unicorn .border-brass,
+.theme-unicorn [class*="border-brass"],
+.theme-unicorn .border-emerald-500,
+.theme-unicorn .border-emerald-600 {
+  border-color: var(--uni-violet) !important;
+}
+.theme-unicorn .ring-brass,
+.theme-unicorn [class*="ring-brass"],
+.theme-unicorn .ring-emerald-500 {
+  --tw-ring-color: var(--uni-violet) !important;
+}
+
+/* Links (Rule 6) */
+.theme-unicorn a:not(.no-underline) {
+  text-decoration: none !important;
+  border-bottom: 1px solid var(--uni-violet);
+  color: var(--uni-chalk);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.theme-unicorn a:not(.no-underline):hover {
+  border-bottom-color: var(--uni-iris);
+  color: var(--uni-chalk);
+}
+.theme-unicorn a.no-underline,
+.theme-unicorn a.no-underline:hover {
+  text-decoration: none !important;
+  border-bottom: none !important;
+}
+
+/* Checkbox and Radio (Rule 6) */
+.theme-unicorn input[type="checkbox"],
+.theme-unicorn input[type="radio"] {
+  accent-color: var(--uni-violet) !important;
+}
+
+/* Semantic Badges & Status */
+.theme-unicorn .badge-ok {
+  background-color: var(--uni-card) !important;
+  border: 1px solid rgba(117, 179, 133, 0.4) !important;
+  color: var(--uni-success) !important;
+  border-radius: var(--uni-radius-ctl) !important;
+}
+.theme-unicorn .badge-danger {
+  background-color: var(--uni-card) !important;
+  border: 1px solid rgba(219, 110, 89, 0.4) !important;
+  color: var(--uni-danger) !important;
+  border-radius: var(--uni-radius-ctl) !important;
+}
+.theme-unicorn .badge-brass {
+  background-color: var(--uni-card) !important;
+  border: 1px solid rgba(171, 143, 241, 0.4) !important;
+  color: var(--uni-violet) !important;
+  border-radius: var(--uni-radius-ctl) !important;
+}
+
+/* Modals Everywhere */
+.theme-unicorn .fixed.inset-0[class*="bg-black"] {
+  background-color: rgba(8, 8, 10, 0.7) !important;
+}
+.theme-unicorn .fixed.inset-0 .bg-zinc-900,
+.theme-unicorn .fixed.inset-0 .bg-paper,
+.theme-unicorn .fixed.inset-0 .bg-paper2,
+.theme-unicorn .fixed.inset-0 [role="dialog"] > div {
+  background-color: var(--uni-panel) !important;
+  border: 1px solid rgba(174, 170, 192, 0.18) !important;
+  border-radius: 10px !important;
+  box-shadow: rgba(0, 0, 0, 0.4) 0 2px 4px -1.5px !important;
+}
+
+/* Hero Background Glow */
+.theme-unicorn .uni-aurora-glow {
+  display: none !important;
+}
+
+/* =========================================================================
+   EDITOR TAB SPECIFIC RESTYLING
+   ========================================================================= */
+
+/* Editor Root Background */
+.theme-unicorn [data-tile-id] {
+  background-color: var(--uni-void);
+}
+
+/* Main Cards: Left card, Player card, Properties card, Timeline card */
+.theme-unicorn [data-tile-id] > div.bg-zinc-900,
+.theme-unicorn [data-tile-id] > div.rounded-xl {
+  background-color: var(--uni-panel) !important;
+  border: 1px solid rgba(174, 170, 192, 0.18) !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+}
+
+/* Panel Card Headers */
+.theme-unicorn div.h-10.border-b.border-zinc-800,
+.theme-unicorn div.h-10.bg-zinc-900 {
+  background-color: var(--uni-panel) !important;
+  border-color: rgba(174, 170, 192, 0.18) !important;
+}
+.theme-unicorn div.h-10.border-b.border-zinc-800 span {
+  color: var(--uni-pearl) !important;
+}
+
+/* Left Rail */
+.theme-unicorn .w-\[92px\] {
+  background-color: var(--uni-panel) !important;
+  border-color: rgba(174, 170, 192, 0.18) !important;
+}
+.theme-unicorn .w-\[92px\] button {
+  color: var(--uni-fog) !important;
+  border-radius: 3px !important;
+}
+.theme-unicorn .w-\[92px\] button svg {
+  color: var(--uni-fog) !important;
+}
+.theme-unicorn .w-\[92px\] button span {
+  color: var(--uni-fog) !important;
+}
+.theme-unicorn .w-\[92px\] button.bg-emerald-950\/60,
+.theme-unicorn .w-\[92px\] button[class*="emerald"] {
+  background-color: var(--uni-elevated) !important;
+  border-left: 2px solid var(--uni-violet) !important;
+  border-radius: 0 3px 3px 0 !important;
+}
+.theme-unicorn .w-\[92px\] button.bg-emerald-950\/60 svg,
+.theme-unicorn .w-\[92px\] button[class*="emerald"] svg,
+.theme-unicorn .w-\[92px\] button.bg-emerald-950\/60 span,
+.theme-unicorn .w-\[92px\] button[class*="emerald"] span {
+  color: var(--uni-chalk) !important;
+}
+
+/* Media, Text, Effects, Transitions, Graphics, and AI cards */
+.theme-unicorn .bg-zinc-850,
+.theme-unicorn .bg-zinc-800\/50,
+.theme-unicorn .bg-zinc-800\/60,
+.theme-unicorn div.grid button.rounded-xl:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
+.theme-unicorn div.space-y-2 > div.rounded-xl {
+  background-color: var(--uni-card) !important;
+  border: 1px solid rgba(174, 170, 192, 0.18) !important;
+  border-radius: 10px !important;
+  color: var(--uni-pearl) !important;
+}
+.theme-unicorn .bg-zinc-850:hover,
+.theme-unicorn .bg-zinc-800\/50:hover,
+.theme-unicorn .bg-zinc-800\/60:hover,
+.theme-unicorn div.grid button.rounded-xl:hover:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
+.theme-unicorn div.space-y-2 > div.rounded-xl:hover {
+  background-color: var(--uni-elevated) !important;
+}
+.theme-unicorn div.grid button.ring-2.ring-emerald-500,
+.theme-unicorn div.grid button.border-emerald-500.bg-emerald-950\/40,
+.theme-unicorn button.ring-emerald-500 {
+  border: 1px solid var(--uni-violet) !important;
+  box-shadow: none !important;
+  background-color: var(--uni-elevated) !important;
+}
+
+/* Player Panel */
+.theme-unicorn span[title="Player ready"] {
+  background-color: var(--uni-violet) !important;
+}
+.theme-unicorn .bg-zinc-950.flex.items-center.justify-center {
+  background-color: var(--uni-void) !important;
+}
+/* Active Stage Tool toggles (Fit, 100%, 9:16, snap, loop) */
+.theme-unicorn button.text-emerald-400.bg-emerald-950\/60 {
+  background-color: transparent !important;
+  border: 1px solid var(--uni-violet) !important;
+  color: var(--uni-violet) !important;
+}
+.theme-unicorn button.text-emerald-400.bg-emerald-950\/60 svg {
+  color: var(--uni-violet) !important;
+}
+/* Round Play Button */
+.theme-unicorn button.w-8.h-8.rounded-full.bg-emerald-600 {
+  background-color: var(--uni-chalk) !important;
+  color: var(--uni-void) !important;
+  border-radius: 9999px !important;
+  box-shadow: #31313a 0 -1px 0 0 !important;
+  border: none !important;
+  width: 32px !important;
+  height: 32px !important;
+  padding: 0 !important;
+}
+.theme-unicorn button.w-8.h-8.rounded-full.bg-emerald-600:hover {
+  background-color: rgb(200, 197, 205) !important;
+}
+.theme-unicorn button.w-8.h-8.rounded-full.bg-emerald-600 svg {
+  color: var(--uni-void) !important;
+}
+
+/* Text Overlay handles and bounds */
+.theme-unicorn .ring-2.ring-emerald-500.pointer-events-none {
+  border: 2px solid var(--uni-violet) !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+.theme-unicorn .ring-2.ring-emerald-500.pointer-events-none > span {
+  background-color: var(--uni-chalk) !important;
+  border: 1px solid var(--uni-violet) !important;
+  border-radius: 3px !important;
+  width: 10px !important;
+  height: 10px !important;
+}
+/* Active snapping guide lines */
+.theme-unicorn div.bg-emerald-500.z-50.pointer-events-none {
+  background-color: var(--uni-violet) !important;
+  opacity: 0.7 !important;
+}
+.theme-unicorn div.bg-emerald-500.z-50.pointer-events-none > div {
+  background-color: var(--uni-violet) !important;
+}
+
+/* Timeline */
+.theme-unicorn .h-10.border-b.border-zinc-800.bg-zinc-900,
+.theme-unicorn div.w-\[170px\].bg-zinc-900,
+.theme-unicorn div.h-6.bg-zinc-900\/90 {
+  background-color: var(--uni-panel) !important;
+  border-color: rgba(174, 170, 192, 0.18) !important;
+}
+/* Alternating lane backgrounds */
+.theme-unicorn div[data-lane-track-id]:nth-child(odd) {
+  background-color: var(--uni-void) !important;
+  border-color: rgba(174, 170, 192, 0.18) !important;
+  border-radius: 3px !important;
+}
+.theme-unicorn div[data-lane-track-id]:nth-child(even) {
+  background-color: var(--uni-panel) !important;
+  border-color: rgba(174, 170, 192, 0.18) !important;
+  border-radius: 3px !important;
+}
+/* Playhead */
+.theme-unicorn .pointer-events-none > .cursor-ew-resize.bg-emerald-500,
+.theme-unicorn .pointer-events-none > div.w-0\.5.bg-emerald-500 {
+  background-color: var(--uni-chalk) !important;
+}
+/* Timeline zoom slider */
+.theme-unicorn input[aria-label="Timeline zoom"] {
+  background-color: var(--uni-iron) !important;
+  accent-color: var(--uni-violet) !important;
+  border-radius: 3px !important;
+}
+
+/* Timeline Clips */
+.theme-unicorn [data-timeline-clip] {
+  background-color: var(--uni-card) !important;
+  border: 1px solid rgba(174, 170, 192, 0.18) !important;
+  border-radius: 3px !important;
+  color: var(--uni-pearl) !important;
+  position: absolute;
+}
+.theme-unicorn [data-timeline-clip]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  z-index: 15;
+}
+.theme-unicorn [data-timeline-clip][data-timeline-clip-type="video"]::before {
+  background-color: var(--uni-violet);
+}
+.theme-unicorn [data-timeline-clip][data-timeline-clip-type="audio"]::before {
+  background-color: var(--uni-fog);
+}
+.theme-unicorn [data-timeline-clip][data-timeline-clip-type="text"]::before {
+  background-color: var(--uni-chalk);
+}
+.theme-unicorn [data-timeline-clip][data-timeline-clip-type="overlay"]::before,
+.theme-unicorn [data-timeline-clip][data-timeline-clip-type="shape"]::before {
+  background-color: var(--uni-iris);
+}
+.theme-unicorn [data-timeline-clip].ring-emerald-500,
+.theme-unicorn [data-timeline-clip].border-emerald-500 {
+  outline: 1px solid var(--uni-violet) !important;
+  box-shadow: 0 0 0 2px rgba(171, 143, 241, 0.35) !important;
+  border-color: var(--uni-violet) !important;
+}
+.theme-unicorn [data-timeline-clip] .cursor-ew-resize > div {
+  width: 2px !important;
+  background-color: var(--uni-chalk) !important;
+}
+.theme-unicorn [data-timeline-clip] span {
+  color: var(--uni-pearl) !important;
+}
+
+/* Properties / Inspector */
+.theme-unicorn button.font-semibold:has(> svg.transition-transform) {
+  font-size: 12px !important;
+  text-transform: uppercase !important;
+  color: var(--uni-fog) !important;
+}
+.theme-unicorn input[type="range"] {
+  background-color: var(--uni-iron) !important;
+  accent-color: var(--uni-violet) !important;
+  border-radius: 3px !important;
+}
+.theme-unicorn button[role="switch"] {
+  border-radius: 3px !important;
+}
+.theme-unicorn button[role="switch"][aria-checked="true"],
+.theme-unicorn button[role="switch"].bg-emerald-600 {
+  background-color: var(--uni-violet) !important;
+}
+.theme-unicorn button[role="switch"][aria-checked="false"],
+.theme-unicorn button[role="switch"].bg-zinc-700 {
+  background-color: var(--uni-iron) !important;
+}
+.theme-unicorn button[role="switch"] > span {
+  border-radius: 2px !important;
+  background-color: var(--uni-void) !important;
+}
+
+/* =========================================================================
+   Custom Brand Accent #e31084 - Universal Final Override
+   ========================================================================= */
+.theme-unicorn button[data-tutorial="generate"],
+.theme-unicorn button.btn-generate-clips,
+.theme-unicorn div.grid button.btn-generate-clips,
+.theme-unicorn div.grid button[data-tutorial="generate"],
+.theme-unicorn .btn-brand-accent,
+.theme-unicorn button.btn-brand-accent,
+.theme-unicorn a.btn-brand-accent,
+button.btn-generate-clips,
+button.btn-brand-accent,
+a.btn-brand-accent {
+  background-color: #e31084 !important;
+  background: #e31084 !important;
+  color: #ffffff !important;
+  border: 1px solid #e31084 !important;
+  box-shadow: 0 4px 16px 0 rgba(227, 16, 132, 0.4) !important;
+  opacity: 1 !important;
+}
+
+.theme-unicorn button[data-tutorial="generate"]:hover,
+.theme-unicorn button.btn-generate-clips:hover,
+.theme-unicorn div.grid button.btn-generate-clips:hover,
+.theme-unicorn div.grid button[data-tutorial="generate"]:hover,
+.theme-unicorn .btn-brand-accent:hover,
+.theme-unicorn button.btn-brand-accent:hover,
+.theme-unicorn a.btn-brand-accent:hover,
+button.btn-generate-clips:hover,
+button.btn-brand-accent:hover,
+a.btn-brand-accent:hover {
+  background-color: #c80d73 !important;
+  background: #c80d73 !important;
+  border-color: #c80d73 !important;
+  color: #ffffff !important;
+}
+
+.theme-unicorn button[data-tutorial="generate"]:disabled,
+.theme-unicorn button.btn-generate-clips:disabled,
+.theme-unicorn div.grid button.btn-generate-clips:disabled,
+.theme-unicorn div.grid button[data-tutorial="generate"]:disabled,
+.theme-unicorn .btn-brand-accent:disabled,
+.theme-unicorn button.btn-brand-accent:disabled,
+button.btn-generate-clips:disabled,
+button.btn-brand-accent:disabled {
+  background-color: #e31084 !important;
+  background: #e31084 !important;
+  border-color: #e31084 !important;
+  color: #ffffff !important;
+  opacity: 0.8 !important;
+  cursor: not-allowed !important;
+}
