@@ -30,6 +30,7 @@ import LoginModal from './components/LoginModal';
 import TrialGate from './components/TrialGate';
 import AdvancedBanner from './components/AdvancedBanner';
 import HistoryTab from './components/HistoryTab';
+import PublishingTab from './components/PublishingTab';
 import AutopilotTab from './components/AutopilotTab';
 import LiveClipperTab from './components/liveclipper/LiveClipperTab';
 import ProfileMenu from './components/ProfileMenu';
@@ -1049,7 +1050,7 @@ function App() {
   // dropped so a reload does not keep forcing the tab.
   const [autopilotConnected, setAutopilotConnected] = useState(null); // connect outcome, see lib/connectReturn.js
   useEffect(() => {
-    const DEEP_LINK_TABS = ['autopilot', 'history', 'settings', 'thumbnails', 'thumbnail-maker', 'dashboard', 'saasshorts', 'editor'];
+    const DEEP_LINK_TABS = ['publishing', 'autopilot', 'history', 'settings', 'thumbnails', 'thumbnail-maker', 'dashboard', 'saasshorts', 'editor'];
     const apply = () => {
       const hash = window.location.hash || '';
       if (!hash.startsWith('#app?')) return;
@@ -1433,6 +1434,7 @@ function App() {
     { id: 'thumbnails', ord: '06', icon: Image, label: 'YouTube Studio', short: 'studio', primary: true },
     { id: 'thumbnail-maker', ord: '06b', icon: Image, label: 'Thumbnail Maker', short: 'thumbs', primary: true },
     { id: 'editor', ord: '07', icon: Film, label: 'Editor', short: 'editor', primary: true },
+    ...(!billingEnabled ? [{ id: 'publishing', icon: Rocket, label: 'Publishing', short: 'publish' }] : []),
     { id: 'history', ord: '08', icon: History, label: 'History', short: 'history' },
     { id: 'settings', ord: '09', icon: Settings, label: 'Settings', short: 'settings' },
   ];
@@ -2199,6 +2201,7 @@ function App() {
             </div>
           )}
 
+          {activeTab === 'publishing' && !billingEnabled && <div className="h-full overflow-y-auto"><PublishingTab onConnect={() => setShowYouTubeSetupModal(true)} /></div>}
           {/* View: History */}
           {activeTab === 'history' && (
             <div className="h-full overflow-y-auto custom-scrollbar animate-fade">

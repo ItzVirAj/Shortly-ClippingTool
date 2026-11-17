@@ -50,7 +50,7 @@ export default function Sidebar({
   useEffect(() => {
     if (['saasshorts', 'ai-agent', 'autopilot', 'thumbnails', 'thumbnail-maker'].includes(activeTab)) {
       setOpenGroups((prev) => ({ ...prev, 'ai-studio': true }));
-    } else if (['ugc-gallery', 'history'].includes(activeTab)) {
+    } else if (['ugc-gallery', 'history', 'publishing'].includes(activeTab)) {
       setOpenGroups((prev) => ({ ...prev, library: true }));
     }
   }, [activeTab]);
@@ -126,6 +126,7 @@ export default function Sidebar({
       items: [
         { id: 'ugc-gallery', label: 'UGC Gallery' },
         { id: 'history', label: 'History' },
+        ...(!billingEnabled ? [{ id: 'publishing', label: 'Publishing' }] : []),
       ],
     },
     {

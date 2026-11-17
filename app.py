@@ -10929,11 +10929,12 @@ def _list_generated_clips():
                 )
                 existing = [f for f in candidates if os.path.exists(f)]
                 if existing:
-                    best_file = max(existing, key=os.path.getmtime)
+                    current = os.path.realpath(os.path.join(job_path, os.path.basename(s.get('video_url') or '')))
+                    best_file = current if os.path.isfile(current) and os.path.dirname(current) == os.path.realpath(job_path) else max(existing, key=os.path.getmtime)
                     fname = os.path.basename(best_file)
                     mtime = os.path.getmtime(best_file)
                     cid = f"{job_id}:{i}"
-                    cname = s.get("title") or f"{base_name} Clip {i + 1}"
+                    cname = s.get("video_title_for_youtube_short") or s.get("title") or f"{base_name} Clip {i + 1}"
                     dur = None
                     if s.get("start") is not None and s.get("end") is not None:
                         dur = round(float(s["end"]) - float(s["start"]), 2)
@@ -12263,6 +12264,11 @@ async def editor_delete_project(id: str):
         raise HTTPException(status_code=500, detail=f"Failed to delete project: {e}")
 
 
+# Persistent local YouTube publishing queue; cloud publishing remains separate.
+if not BILLING_ENABLED:
+    import publishing_routes
+    publishing_store = publishing_routes.install(app, OUTPUT_DIR, _list_generated_clips)
+
 if __name__ == "__main__":
     # Multi-call dispatcher for packaged standalone binary (PyInstaller / Electron sidecar)
     # When packaged, sys.executable points to shortly-backend.exe. Child jobs spawned by app.py
@@ -12320,8 +12326,3 @@ if __name__ == "__main__":
 
     print(f"🚀 Shortly Engine starting on http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
-
-
-
-
-
