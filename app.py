@@ -23,7 +23,7 @@ from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from typing import Any, Dict, Optional, List
 from contextlib import asynccontextmanager, suppress
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Header, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Header, BackgroundTasks, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
@@ -3917,6 +3917,12 @@ def _queue_wait_started(job_id):
 async def lifespan(app: FastAPI):
     # Rehydrate finished jobs from disk before serving (survives restarts).
     _recover_jobs_from_disk()
+    # Recover any live clipper sessions interrupted by restart and run maintenance
+    try:
+        from live_clipper.hardening import startup_maintenance as _live_maintenance
+        _live_maintenance()
+    except Exception as _e:
+        print(f"⚠️ Live session recovery/maintenance error: {_e}")
     # Re-enqueue jobs that were mid-processing when we stopped (redeploy). Their
     # reservations must survive the orphan sweep so the resumed run can settle them.
     _booted_at = datetime.now(timezone.utc)
@@ -3980,6 +3986,13 @@ async def lifespan(app: FastAPI):
                      and not _queue_mode.killed())
     yield
     # Cleanup (optional: cancel worker)
+    try:
+        from live_clipper.session import session_manager as _live_session_manager
+        _act = _live_session_manager.get_active_session()
+        if _act:
+            await _act.stop()
+    except Exception as _e:
+        print(f"⚠️ Live clipper shutdown error: {_e}")
 
 app = FastAPI(lifespan=lifespan)
 
@@ -3996,6 +4009,10 @@ app.include_router(_mcp_server.router)
 # captions only, never the GPU) and the title/description/tag generator.
 import free_tools as _free_tools
 app.include_router(_free_tools.router)
+
+# Live Clipper module (/api/liveclipper)
+import live_clipper.routes as _live_clipper_routes
+app.include_router(_live_clipper_routes.router)
 
 # Enable CORS for frontend. Cloud mode locks this down to the configured origins;
 # self-host keeps the permissive wildcard it has always used.
@@ -4744,6 +4761,8 @@ def _reject_short_source(duration: float):
 LAYOUT_ENV = {
     "split": "SPLIT_LAYOUT",          # two speakers stacked
     "screencast": "SCREENCAST_LAYOUT",  # slides/screen share over the speaker
+    "streamer_top": "STREAMER_TOP_LAYOUT",        # streamer on top, gameplay on bottom
+    "streamer_bottom": "STREAMER_BOTTOM_LAYOUT",  # gameplay on top, streamer on bottom
     "speaker_cut": "SPEAKER_CUT",     # hard cuts to whoever is talking
     "punch_in": "PUNCH_IN",           # small push on the clip's beats
 }
@@ -4994,6 +5013,10 @@ async def process_endpoint(
     source_end: Optional[str] = Form(None),
     mode: Optional[str] = Form(None),
     manual_style: Optional[str] = Form(None),
+    streamer: Optional[str] = Form(None),
+    topic: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    platform: Optional[str] = Form(None),
 ):
     # Handle JSON body manually for URL payload
     content_type = request.headers.get("content-type", "")
@@ -5021,6 +5044,10 @@ async def process_endpoint(
         source_end = body.get("source_end")
         mode = body.get("mode", mode)
         manual_style = body.get("manual_style", manual_style)
+        streamer = body.get("streamer", streamer)
+        topic = body.get("topic", topic)
+        notes = body.get("notes", notes)
+        platform = body.get("platform", platform)
     else:
         ack_flag = str(acknowledged).lower() in ("1", "true", "yes")
         force_low = str(force_low_quality).lower() in ("1", "true", "yes")
@@ -5129,6 +5156,16 @@ async def process_endpoint(
         if manual_style:
             env["MANUAL_STYLE_PRESET"] = str(manual_style).strip().lower()
         print(f"[mode] job={job_id} processing_mode=manual style={env.get('MANUAL_STYLE_PRESET', 'viral')}")
+
+    # Context inputs (streamer, topic, notes, platform) for prompt grounding
+    if streamer and str(streamer).strip():
+        env["CONTEXT_STREAMER"] = str(streamer).strip()
+    if topic and str(topic).strip():
+        env["CONTEXT_TOPIC"] = str(topic).strip()
+    if notes and str(notes).strip():
+        env["CONTEXT_NOTES"] = str(notes).strip()
+    if platform and str(platform).strip():
+        env["CONTEXT_PLATFORM"] = str(platform).strip()
 
     # Optional layouts are per job. The renderer reads these at import time in
     # the subprocess, so they must be set before Popen — same path WATERMARK
@@ -5694,6 +5731,70 @@ class ManualInputRequest(BaseModel):
     clips: Optional[List[Dict[str, Any]]] = None
 
 
+class ManualPromptRegenerateRequest(BaseModel):
+    streamer: Optional[str] = None
+    topic: Optional[str] = None
+    notes: Optional[str] = None
+    platform: Optional[str] = None
+    style_preset: Optional[str] = None
+
+
+@app.post("/api/jobs/{job_id}/manual-prompt")
+async def regenerate_manual_prompt(job_id: str, req: ManualPromptRegenerateRequest, request: Request):
+    """Regenerate the manual prompt package with updated user-provided context."""
+    job = jobs.get(job_id)
+    if job is None:
+        job = _job_view_from_disk(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    await _assert_job_owner(request, job)
+    output_dir = job.get("output_dir") or os.path.join(OUTPUT_DIR, job_id)
+
+    prompt_file = os.path.join(output_dir, "manual_prompt.json")
+    pkg = {}
+    if os.path.exists(prompt_file):
+        try:
+            with open(prompt_file, "r", encoding="utf-8") as pf:
+                pkg = json.load(pf)
+        except Exception:
+            pass
+
+    transcript_file = os.path.join(output_dir, "source_transcript.json")
+    transcript_data = {}
+    if os.path.exists(transcript_file):
+        try:
+            with open(transcript_file, "r", encoding="utf-8") as tf:
+                transcript_data = json.load(tf)
+        except Exception:
+            pass
+
+    from manual_prompt_builder import build_manual_prompt
+    video_dur = float(pkg.get("video_duration") or 0.0)
+    video_title = pkg.get("video_title") or job.get("title") or "Video Source"
+    style = req.style_preset or pkg.get("style_preset") or "viral"
+
+    new_pkg = build_manual_prompt(
+        transcript_result=transcript_data,
+        video_duration=video_dur,
+        video_title=video_title,
+        style_preset=style,
+        platform=req.platform,
+        streamer=req.streamer,
+        topic=req.topic,
+        notes=req.notes,
+    )
+
+    try:
+        with open(prompt_file, "w", encoding="utf-8") as pf:
+            json.dump(new_pkg, pf, indent=2)
+        job["manual_prompt_package"] = new_pkg
+    except Exception as e:
+        print(f"Failed to update manual_prompt.json: {e}")
+
+    return new_pkg
+
+
 @app.post("/api/jobs/{job_id}/manual-input")
 async def submit_manual_input(job_id: str, req: ManualInputRequest, request: Request):
     """Receive and parse user-supplied AI clips for manual / BYO-agent mode."""
@@ -5709,9 +5810,17 @@ async def submit_manual_input(job_id: str, req: ManualInputRequest, request: Req
     if not os.path.exists(output_dir):
         raise HTTPException(status_code=404, detail="Job output directory not found")
 
-    from manual_parser import extract_clips_from_raw_text, normalize_clip_item
+    from manual_parser import extract_clips_from_raw_text, normalize_clip_item, has_copied_examples
+    from manual_prompt_builder import contains_copied_example
 
-    # Read video duration from prompt package or manifest if available
+    # Output guard: reject copied example text with clear guidance
+    if req.raw_input and has_copied_examples(req.raw_input):
+        raise HTTPException(
+            status_code=400,
+            detail="The AI copied the example text; ask it again",
+        )
+
+    # Read video duration and transcript segments if available
     video_dur = 0.0
     pkg = job.get("manual_prompt_package")
     if not pkg:
@@ -5726,14 +5835,33 @@ async def submit_manual_input(job_id: str, req: ManualInputRequest, request: Req
     if pkg and "video_duration" in pkg:
         video_dur = float(pkg["video_duration"])
 
+    transcript_segments = None
+    transcript_file = os.path.join(output_dir, "source_transcript.json")
+    if os.path.exists(transcript_file):
+        try:
+            with open(transcript_file, "r", encoding="utf-8") as tf:
+                tdata = json.load(tf)
+                transcript_segments = tdata.get("segments") or tdata.get("words")
+        except Exception:
+            pass
+
     parsed_clips = []
     if req.clips:
         for idx, c in enumerate(req.clips):
-            norm = normalize_clip_item(c, index=idx, video_duration=video_dur)
+            if contains_copied_example(c.get("video_title_for_youtube_short", "")) or contains_copied_example(c.get("viral_hook_text", "")):
+                raise HTTPException(
+                    status_code=400,
+                    detail="The AI copied the example text; ask it again",
+                )
+            norm = normalize_clip_item(c, index=idx, video_duration=video_dur, transcript_segments=transcript_segments)
             if norm:
                 parsed_clips.append(norm)
     elif req.raw_input:
-        parsed_clips = extract_clips_from_raw_text(req.raw_input, video_duration=video_dur)
+        parsed_clips = extract_clips_from_raw_text(
+            req.raw_input,
+            video_duration=video_dur,
+            transcript_segments=transcript_segments,
+        )
 
     if not parsed_clips:
         raise HTTPException(
@@ -6342,6 +6470,12 @@ async def get_clip_edl(job_id: str, clip_index: int, request: Request):
         "canonical_range": canonical_range,
         "duration": total,
         "current_file": current_file,
+        "kick_framed": bool(clip.get("kick_framed") or "kick_" in (clip.get("video_url") or "")),
+        "frame_type": clip.get('frame_type') or ('kick' if clip.get('kick_framed') else None),
+        "frame_scale": clip.get('frame_scale', 1.0),
+        "frame_x_pct": clip.get('frame_x_pct', 0.0),
+        "frame_y_pct": clip.get('frame_y_pct', None),
+        "text_overlays": clip.get('text_overlays') or [],
         "has_captions": bool(re.match(r'^subtitled_\d+_',
                                       watermarked.clean_name(current_file))),
         "words": words_out,
@@ -6374,6 +6508,14 @@ class RerenderRequest(BaseModel):
     # None = inherit the recipe's framing (so plain trims keep the look);
     # 'auto' resets to the classifier; 'full'/'track' force a layout.
     framing: Optional[str] = None
+    kick_frame: Optional[bool] = None
+    frame_type: Optional[str] = None
+    frame_scale: Optional[float] = 1.0
+    frame_x_pct: Optional[float] = 0.0
+    frame_y_pct: Optional[float] = None
+    # Text overlays: list of {text, x_pct, y_pct, font_size, font_id, color,
+    #                          bold, italic, bg_color, bg_opacity}
+    text_overlays: Optional[List[dict]] = None
 
 
 # Manual framing -> reframe-engine strategy. 'full' shows the whole source
@@ -6517,6 +6659,32 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
         served_name, _clean_recut_name = await loop.run_in_executor(None, run_recut)
         served_name = await _deliver(request, req.job_id, served_name)
 
+        active_frame = req.frame_type if req.frame_type is not None else clip.get('frame_type')
+        if not active_frame and (req.kick_frame or clip.get('kick_framed')):
+            active_frame = 'kick'
+        if active_frame and active_frame != 'none':
+            from main import apply_brand_frame
+            scale = req.frame_scale if req.frame_scale is not None else clip.get('frame_scale', 1.0)
+            x_pct = req.frame_x_pct if req.frame_x_pct is not None else clip.get('frame_x_pct', 0.0)
+            y_pct = req.frame_y_pct if req.frame_y_pct is not None else clip.get('frame_y_pct', None)
+            framed_name = f"{active_frame}_{served_name}"
+            framed_path = os.path.join(output_dir, framed_name)
+            recut_path = os.path.join(output_dir, served_name)
+            ok_frame = await loop.run_in_executor(None, apply_brand_frame, recut_path, framed_path, active_frame, scale, x_pct, y_pct)
+            if ok_frame and os.path.exists(framed_path):
+                served_name = framed_name
+
+        # Apply text overlays after the brand frame (so text sits on top)
+        active_text_overlays = req.text_overlays if req.text_overlays is not None else clip.get('text_overlays') or []
+        if active_text_overlays:
+            from main import apply_text_overlays
+            txt_name = f"txt_{served_name}"
+            txt_path = os.path.join(output_dir, txt_name)
+            src_for_txt = os.path.join(output_dir, served_name)
+            ok_txt = await loop.run_in_executor(None, apply_text_overlays, src_for_txt, txt_path, active_text_overlays)
+            if ok_txt and os.path.exists(txt_path):
+                served_name = txt_name
+
         new_video_url = f"/videos/{req.job_id}/{served_name}"
         new_recipe = {"v": 1, "segments": segments,
                       "canonical_range": canonical_range}
@@ -6530,6 +6698,12 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
 
         updates = {'video_url': new_video_url, 'start': new_start,
                    'end': new_end, 'recipe': new_recipe,
+                   'frame_type': active_frame if (active_frame and active_frame != 'none') else None,
+                   'frame_scale': scale if (active_frame and active_frame != 'none') else 1.0,
+                   'frame_x_pct': x_pct if (active_frame and active_frame != 'none') else 0.0,
+                   'frame_y_pct': y_pct if (active_frame and active_frame != 'none') else None,
+                   'kick_framed': (active_frame == 'kick'),
+                   'text_overlays': active_text_overlays or None,
                    # The stacked stretches of THIS render (empty on the fast
                    # path, which never reframes): captions follow them.
                    'layout_ranges': layout_ranges.read(
@@ -6569,6 +6743,113 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
             await _metering.release_reservation(reservation_id)
         print(f"❌ Rerender Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class ClipFrameRequest(BaseModel):
+    job_id: str
+    clip_index: int
+    frame_type: str = "kick"
+    remove: bool = False
+    scale: float = 1.0
+    x_pct: float = 0.0
+    y_pct: Optional[float] = None
+
+
+@app.post("/api/clip/frame")
+async def apply_clip_frame(req: ClipFrameRequest, request: Request):
+    """Apply or remove a brand frame (Kick, YouTube, Twitch, Instagram) on a clip."""
+    await _ensure_job_files(req.job_id, request)
+    if req.job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job = jobs[req.job_id]
+    await _assert_job_owner(request, job)
+
+    output_dir = os.path.join(OUTPUT_DIR, req.job_id)
+    json_files = glob.glob(os.path.join(output_dir, "*_metadata.json"))
+    if not json_files:
+        raise HTTPException(status_code=404, detail="Metadata not found")
+    with open(json_files[0], 'r') as f:
+        data = json.load(f)
+
+    clips = data.get('shorts', [])
+    if req.clip_index < 0 or req.clip_index >= len(clips):
+        raise HTTPException(status_code=404, detail="Clip not found")
+    clip = clips[req.clip_index]
+
+    base_name = os.path.basename(json_files[0]).replace('_metadata.json', '')
+    current_file = (clip.get('video_url') or '').split('/')[-1]
+    if not current_file:
+        current_file = _canonical_clip_file(output_dir, base_name, req.clip_index)
+
+    if req.remove or req.frame_type == "none":
+        clean_file = clip.get('clean_file')
+        if clean_file and os.path.exists(os.path.join(output_dir, clean_file)):
+            new_file = clean_file
+        else:
+            new_file = re.sub(r'^(kick|youtube|twitch|instagram)_', '', current_file)
+            if not os.path.exists(os.path.join(output_dir, new_file)):
+                new_file = _canonical_clip_file(output_dir, base_name, req.clip_index)
+
+        clip['video_url'] = f"/videos/{req.job_id}/{new_file}"
+        clip['kick_framed'] = False
+        clip['frame_type'] = None
+        with open(json_files[0], 'w') as f:
+            json.dump(data, f, indent=4)
+        return {
+            "ok": True,
+            "new_video_url": clip['video_url'],
+            "frame_type": None,
+            "kick_framed": False,
+        }
+
+    # Applying the frame
+    from main import apply_brand_frame
+    input_file = clip.get('clean_file') or current_file
+    if re.match(r'^(kick|youtube|twitch|instagram)_', current_file) and clip.get('clean_file'):
+        input_file = clip['clean_file']
+
+    input_path = os.path.join(output_dir, input_file)
+    if not os.path.exists(input_path):
+        input_path = os.path.join(output_dir, current_file)
+    if not os.path.exists(input_path):
+        raise HTTPException(status_code=404, detail="Clip source file not found on server")
+
+    tag = (req.frame_type or "frame").lower()
+    framed_name = f"{tag}_{req.clip_index + 1}_{int(time.time())}.mp4"
+    output_path = os.path.join(output_dir, framed_name)
+
+    loop = asyncio.get_event_loop()
+    ok = await loop.run_in_executor(None, apply_brand_frame, input_path, output_path, req.frame_type, req.scale, req.x_pct, req.y_pct)
+    if not ok or not os.path.exists(output_path):
+        raise HTTPException(status_code=500, detail=f"Failed to apply {req.frame_type} frame")
+
+    # Update metadata
+    clip['clean_file'] = input_file
+    clip['video_url'] = f"/videos/{req.job_id}/{framed_name}"
+    clip['frame_type'] = req.frame_type
+    clip['frame_scale'] = req.scale
+    clip['frame_x_pct'] = req.x_pct
+    clip['frame_y_pct'] = req.y_pct
+    clip['kick_framed'] = (req.frame_type == "kick")
+
+    with open(json_files[0], 'w') as f:
+        json.dump(data, f, indent=4)
+
+    return {
+        "ok": True,
+        "new_video_url": clip['video_url'],
+        "frame_type": req.frame_type,
+        "frame_scale": req.scale,
+        "frame_x_pct": req.x_pct,
+        "frame_y_pct": req.y_pct,
+        "kick_framed": clip['kick_framed'],
+    }
+
+    return {
+        "ok": True,
+        "new_video_url": clip['video_url'],
+        "kick_framed": True,
+    }
 
 
 # --- Manual framing -----------------------------------------------------------
@@ -10696,26 +10977,263 @@ if not BILLING_ENABLED:
 
     @app.get("/api/history")
     async def local_history():
-        """List locally generated clips for the History tab."""
+        """List locally generated clips for the History tab (both Studio Clipper and Live Clipper)."""
         items = []
+
+        # 1. Studio Clipper Clips (offline stream / uploaded videos)
         clips = _list_generated_clips()
         for c in clips:
             parts = c["id"].split(":")
             job_id = parts[0]
             clip_idx = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
             safe_name = os.path.basename(c["url"])
+            fp = c.get("_path")
+            size_b = os.path.getsize(fp) if fp and os.path.exists(fp) else 0
             items.append({
                 "id": c["id"],
+                "raw_id": c["id"],
                 "job_id": job_id,
                 "clip_index": clip_idx,
                 "title": c["name"],
                 "created_at": c["createdAt"],
-                "size_bytes": 0,
+                "size_bytes": size_b,
                 "filename": safe_name,
                 "view_url": c["url"],
                 "download_url": c["url"],
+                "file_path": fp,
+                "source_type": "studio",
+                "duration": c.get("duration"),
             })
+
+        # 2. Live Clipper Clips (real-time live stream chat spikes & cuts)
+        live_pattern = os.path.join(OUTPUT_DIR, "liveclipper", "*", "queue.json")
+        for qf in glob.glob(live_pattern):
+            try:
+                with open(qf, "r", encoding="utf-8") as f:
+                    q_items = json.load(f)
+                for it in q_items:
+                    cp = it.get("clip_path")
+                    if cp and os.path.exists(cp):
+                        size_b = os.path.getsize(cp)
+                        cid = it.get("id")
+                        onset_str = f"{it.get('start_t', 0):.0f}s"
+                        items.append({
+                            "id": f"live:{cid}",
+                            "raw_id": cid,
+                            "job_id": it.get("session_id"),
+                            "session_id": it.get("session_id"),
+                            "clip_index": 0,
+                            "title": it.get("title") or f"Live Stream Clip @ {onset_str}",
+                            "created_at": it.get("created_at") or it.get("updated_at") or datetime.now(timezone.utc).isoformat(),
+                            "size_bytes": size_b,
+                            "filename": os.path.basename(cp),
+                            "view_url": f"/api/liveclipper/queue/{cid}/preview",
+                            "download_url": f"/api/liveclipper/queue/{cid}/preview",
+                            "file_path": cp,
+                            "source_type": "live",
+                            "duration": it.get("duration"),
+                            "score": it.get("score"),
+                            "status": it.get("status"),
+                        })
+            except Exception:
+                pass
+
+        def parse_iso(dt_str):
+            try:
+                return datetime.fromisoformat(str(dt_str).replace("Z", "+00:00")).timestamp()
+            except Exception:
+                return 0
+
+        items.sort(key=lambda x: parse_iso(x.get("created_at", "")), reverse=True)
         return {"videos": items}
+
+    @app.post("/api/history/open-folder")
+    async def open_history_folder(req: dict = Body(...)):
+        """Open local folder or select specific clip in OS file explorer."""
+        file_path = req.get("file_path")
+        target = None
+        if file_path and os.path.exists(file_path):
+            target = os.path.abspath(file_path)
+        else:
+            target = os.path.abspath(OUTPUT_DIR)
+
+        proj_dir = os.path.abspath(".")
+        if not target.startswith(proj_dir):
+            raise HTTPException(status_code=400, detail="Invalid target path outside project directory.")
+
+        try:
+            if sys.platform == "win32":
+                if os.path.isfile(target):
+                    subprocess.Popen(f'explorer /select,"{target}"')
+                else:
+                    os.startfile(target)
+            elif sys.platform == "darwin":
+                if os.path.isfile(target):
+                    subprocess.Popen(["open", "-R", target])
+                else:
+                    subprocess.Popen(["open", target])
+            else:
+                if os.path.isfile(target):
+                    subprocess.Popen(["xdg-open", os.path.dirname(target)])
+                else:
+                    subprocess.Popen(["xdg-open", target])
+            return {"success": True, "path": target}
+        except Exception as e:
+            return {"success": False, "error": str(e), "path": target}
+
+    @app.delete("/api/history/clips")
+    async def delete_history_clip(req: dict = Body(...)):
+        """Delete an individual clip file from disk and synchronize with its session."""
+        clip_id = req.get("id")
+        file_path = req.get("file_path")
+        source_type = req.get("source_type")
+
+        deleted = False
+        proj_dir = os.path.abspath(".")
+        if file_path and os.path.exists(file_path):
+            abs_fp = os.path.abspath(file_path)
+            if abs_fp.startswith(proj_dir):
+                try:
+                    os.remove(abs_fp)
+                    deleted = True
+                except Exception as e:
+                    print(f"Error removing clip file {abs_fp}: {e}")
+
+        # If live clip, synchronize with global_queue, queue.json, and session.json
+        if source_type == "live" or (clip_id and str(clip_id).startswith("live:")):
+            raw_id = str(clip_id).replace("live:", "")
+            session_id = None
+            try:
+                from live_clipper.queue import global_queue
+                item = global_queue.reject(raw_id)
+                session_id = item.session_id if item else None
+            except Exception:
+                pass
+
+            # Search both live_sessions and output/liveclipper to synchronize session stats
+            candidate_dirs = []
+            if session_id:
+                candidate_dirs.extend([
+                    os.path.join("live_sessions", session_id),
+                    os.path.join(OUTPUT_DIR, "liveclipper", session_id)
+                ])
+            else:
+                for base in ["live_sessions", os.path.join(OUTPUT_DIR, "liveclipper")]:
+                    if os.path.exists(base):
+                        for s in os.listdir(base):
+                            candidate_dirs.append(os.path.join(base, s))
+
+            for s_dir in candidate_dirs:
+                q_file = os.path.join(s_dir, "queue.json")
+                if os.path.exists(q_file):
+                    try:
+                        with open(q_file, "r", encoding="utf-8") as f:
+                            q_items = json.load(f)
+                        updated = False
+                        for it in q_items:
+                            if it.get("id") == raw_id or (file_path and it.get("clip_path") == file_path):
+                                it["status"] = "rejected"
+                                updated = True
+                        if updated:
+                            with open(q_file, "w", encoding="utf-8") as f:
+                                json.dump(q_items, f, indent=2)
+
+                            # Synchronize session.json stats
+                            sess_file = os.path.join(s_dir, "session.json")
+                            if os.path.exists(sess_file):
+                                with open(sess_file, "r", encoding="utf-8") as sf:
+                                    s_data = json.load(sf)
+                                stats = s_data.setdefault("stats", {})
+                                active_clips = [it for it in q_items if it.get("status") not in ("rejected", "failed")]
+                                stats["clips_cut"] = len(active_clips)
+                                stats["clips_approved"] = len([it for it in q_items if it.get("status") in ("approved", "completed")])
+                                stats["clips_rejected"] = len([it for it in q_items if it.get("status") == "rejected"])
+                                with open(sess_file, "w", encoding="utf-8") as sf:
+                                    json.dump(s_data, sf, indent=2)
+                    except Exception as e:
+                        print(f"Error updating session queue after clip delete: {e}")
+
+        # If studio clip, synchronize with metadata.json
+        if source_type == "studio" or (clip_id and not str(clip_id).startswith("live:")):
+            parts = str(clip_id).split(":")
+            if len(parts) >= 2:
+                job_id = parts[0]
+                clip_idx = int(parts[1]) if parts[1].isdigit() else -1
+                job_dir = os.path.join(OUTPUT_DIR, job_id)
+                for meta_f in glob.glob(os.path.join(job_dir, "*_metadata.json")):
+                    try:
+                        with open(meta_f, "r", encoding="utf-8") as f:
+                            m_data = json.load(f)
+                        shorts = m_data.get("shorts", [])
+                        if 0 <= clip_idx < len(shorts):
+                            shorts[clip_idx]["deleted"] = True
+                            m_data["shorts"] = shorts
+                            with open(meta_f, "w", encoding="utf-8") as f:
+                                json.dump(m_data, f, indent=2)
+                    except Exception:
+                        pass
+
+        return {"success": True, "id": clip_id, "deleted_file": deleted}
+
+    @app.delete("/api/history/all")
+    async def delete_all_history_clips(req: dict = Body(...)):
+        """Delete clips by source type ('all', 'studio', or 'live') and synchronize sessions."""
+        source_type = req.get("source_type", "all")
+        deleted_count = 0
+
+        # Delete Studio clips
+        if source_type in ("all", "studio"):
+            clips = _list_generated_clips()
+            for c in clips:
+                fp = c.get("_path")
+                if fp and os.path.exists(fp):
+                    try:
+                        os.remove(fp)
+                        deleted_count += 1
+                    except Exception:
+                        pass
+
+        # Delete Live clips and synchronize session stats
+        if source_type in ("all", "live"):
+            for base in ["live_sessions", os.path.join(OUTPUT_DIR, "liveclipper")]:
+                if not os.path.exists(base):
+                    continue
+                for s_dir_name in os.listdir(base):
+                    s_dir = os.path.join(base, s_dir_name)
+                    qf = os.path.join(s_dir, "queue.json")
+                    if os.path.exists(qf):
+                        try:
+                            with open(qf, "r", encoding="utf-8") as f:
+                                items = json.load(f)
+                            for it in items:
+                                cp = it.get("clip_path")
+                                if cp and os.path.exists(cp):
+                                    try:
+                                        os.remove(cp)
+                                        deleted_count += 1
+                                    except Exception:
+                                        pass
+                                it["status"] = "rejected"
+                            with open(qf, "w", encoding="utf-8") as f:
+                                json.dump(items, f, indent=2)
+
+                            # Synchronize session.json stats
+                            sf_path = os.path.join(s_dir, "session.json")
+                            if os.path.exists(sf_path):
+                                with open(sf_path, "r", encoding="utf-8") as sf:
+                                    s_data = json.load(sf)
+                                stats = s_data.setdefault("stats", {})
+                                stats["clips_cut"] = 0
+                                stats["clips_approved"] = 0
+                                stats["clips_rejected"] = len(items)
+                                with open(sf_path, "w", encoding="utf-8") as sf:
+                                    json.dump(s_data, sf, indent=2)
+                        except Exception:
+                            pass
+
+        return {"success": True, "deleted_count": deleted_count, "source_type": source_type}
+
+
 
     _AUTOPILOT_LOCAL_FILE = os.path.join(OUTPUT_DIR, ".autopilot_settings.json")
 

@@ -1,0 +1,15 @@
+{
+  "output_dir": "",
+  "voice_mode": "streamer",
+  "elevenlabs": {
+    "model_id": "eleven_multilingual_v2",
+    "voices": {
+      "a": {"label": "Voice A", "voice_id": "", "color": "#FF5FA2"},
+      "b": {"label": "Voice B", "voice_id": "", "color": "#4FD1FF"}
+    },
+    "stability": 0.45,
+    "similarity_boost": 0.8,
+    "style": 0.35
+  },
+  "caption_lang": "en"
+}

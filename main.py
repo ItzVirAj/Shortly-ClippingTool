@@ -1642,6 +1642,262 @@ def apply_watermark(video_path, output_path=None):
     return False
 
 
+FRAME_ASSETS = {
+    "kick": {
+        "file": os.path.join("dashboard", "public", "frames", "kick.png"),
+        "alt_file": os.path.join("assets", "Kick.com Watermark & Logo.png"),
+        "name": "Kick",
+        "color": "#53FC18",
+    },
+    "youtube": {
+        "file": os.path.join("dashboard", "public", "frames", "youtube.png"),
+        "alt_file": os.path.join("assets", "YoutubeFrame.png"),
+        "name": "YouTube",
+        "color": "#FF0000",
+    },
+    "twitch": {
+        "file": os.path.join("dashboard", "public", "frames", "twitch.png"),
+        "alt_file": os.path.join("assets", "TwitchFrame.png"),
+        "name": "Twitch",
+        "color": "#9146FF",
+    },
+    "instagram": {
+        "file": os.path.join("dashboard", "public", "frames", "instagram.png"),
+        "alt_file": os.path.join("assets", "InstagramFrame.png"),
+        "name": "Instagram",
+        "color": "#E1306C",
+    },
+}
+
+
+def get_frame_asset_path(frame_type):
+    ft = (frame_type or "kick").lower().strip()
+    if ft == "yt":
+        ft = "youtube"
+    root = os.path.dirname(os.path.abspath(__file__))
+    info = FRAME_ASSETS.get(ft)
+    if not info:
+        return None
+    p1 = os.path.join(root, info["file"])
+    if os.path.exists(p1):
+        return p1
+    p2 = os.path.join(root, info["alt_file"])
+    if os.path.exists(p2):
+        return p2
+    return None
+
+
+def kick_watermark_path():
+    return get_frame_asset_path("kick") or os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                        "assets", "Kick.com Watermark & Logo.png")
+
+
+def brand_frame_filter(vw, vh, frame_type="kick", scale=1.0, x_pct=0.0, y_pct=None):
+    """Overlay a brand frame (Kick, YouTube, Twitch, Instagram) with configurable scale and position."""
+    target_w = max(100, min(vw * 2, int(round(vw * scale))))
+    target_w -= target_w % 2
+
+    if x_pct != 0.0:
+        x_expr = f"max(0\\,min(main_w-overlay_w\\,{int(round(vw * x_pct))}))"
+    elif scale != 1.0:
+        x_expr = "(main_w-overlay_w)/2"
+    else:
+        x_expr = "0"
+
+    if y_pct is not None:
+        y_pos = int(round(vh * y_pct))
+        y_expr = f"max(0\\,min(main_h-overlay_h\\,{y_pos}))"
+    else:
+        y_expr = "main_h-overlay_h"
+
+    return (
+        f"[1:v]scale={target_w}:-1,format=rgba[wm];"
+        f"[0:v][wm]overlay=x={x_expr}:y={y_expr}"
+    )
+
+
+def apply_brand_frame(video_path, output_path=None, frame_type="kick", scale=1.0, x_pct=0.0, y_pct=None):
+    """Burn any of the 4 brand frames (Kick, YouTube, Twitch, Instagram) into a finished clip."""
+    asset = get_frame_asset_path(frame_type)
+    if not asset or not os.path.exists(asset):
+        print(f"   ⚠️ Frame asset missing for {frame_type} ({asset}); clip kept unchanged.")
+        return False
+
+    try:
+        probe = subprocess.check_output(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", video_path],
+            stderr=subprocess.STDOUT, timeout=60,
+        ).decode().strip().split("x")
+        vw, vh = int(probe[0]), int(probe[1])
+    except Exception as e:
+        print(f"   ⚠️ Could not probe clip for brand frame ({e}); clip kept unchanged.")
+        return False
+
+    filt = brand_frame_filter(vw, vh, frame_type=frame_type, scale=scale, x_pct=x_pct, y_pct=y_pct)
+    tag = (frame_type or "frame").lower()
+    tmp_path = (output_path or video_path) + f".{tag}.mp4"
+    cmd = ["ffmpeg", "-y", "-i", video_path, "-i", asset,
+           "-filter_complex", filt,
+           *video_encode_args(QUALITY), "-c:a", "copy", *METADATA_SCRUB,
+           "-movflags", "+faststart", tmp_path]
+    result = gpu_decode.run(
+        lambda on_gpu: gpu_decode.on_card(cmd, video_path) if on_gpu else cmd,
+        lambda c: subprocess.run(c, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                 timeout=1800),
+        ok=lambda r: r.returncode == 0 and os.path.exists(tmp_path),
+        path=video_path)
+    if result.returncode == 0 and os.path.exists(tmp_path):
+        os.replace(tmp_path, output_path or video_path)
+        return True
+    err = (result.stderr or b"").decode(errors="ignore")[-300:]
+    print(f"   ⚠️ Brand frame ({frame_type}) pass failed: {err}")
+    if os.path.exists(tmp_path):
+        os.remove(tmp_path)
+    return False
+
+
+def apply_kick_frame(video_path, output_path=None):
+    return apply_brand_frame(video_path, output_path=output_path, frame_type="kick")
+
+
+def kick_frame_filter(vw, vh):
+    return brand_frame_filter(vw, vh, frame_type="kick")
+
+
+# ---------------------------------------------------------------------------
+# Text overlay – FFmpeg drawtext
+# ---------------------------------------------------------------------------
+
+# Map font IDs (sent from the browser) to Windows system font paths.
+# Falls back to Arial if the requested font isn't found.
+_FONT_PATHS = {
+    "impact":   r"C:\Windows\Fonts\impact.ttf",
+    "arial":    r"C:\Windows\Fonts\arial.ttf",
+    "arialbd":  r"C:\Windows\Fonts\arialbd.ttf",
+    "ariblk":   r"C:\Windows\Fonts\ariblk.ttf",
+    "calibri":  r"C:\Windows\Fonts\calibri.ttf",
+    "bahnschrift": r"C:\Windows\Fonts\bahnschrift.ttf",
+    "comic":    r"C:\Windows\Fonts\comic.ttf",
+    "consola":  r"C:\Windows\Fonts\consola.ttf",
+    "candara":  r"C:\Windows\Fonts\Candara.ttf",
+}
+_FONT_FALLBACK = r"C:\Windows\Fonts\arial.ttf"
+
+
+def _resolve_font(font_id: str) -> str:
+    path = _FONT_PATHS.get((font_id or "arial").lower(), _FONT_FALLBACK)
+    return path if os.path.exists(path) else _FONT_FALLBACK
+
+
+def _escape_drawtext(text: str) -> str:
+    """Escape special characters for FFmpeg drawtext filter."""
+    return (text
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace(":", "\\:")
+            .replace("%", "\\%"))
+
+
+def apply_text_overlays(video_path: str, output_path: str, overlays: list) -> bool:
+    """Burn text overlays into a video clip via FFmpeg drawtext filter.
+
+    Each overlay dict:
+        text, x_pct, y_pct, font_size (px at 1080-width equiv),
+        font_id, color (#rrggbb), bold (bool), italic (bool),
+        bg_color (optional, e.g. '#000000'), bg_opacity (0–1)
+    """
+    if not overlays:
+        return False
+    try:
+        probe = subprocess.check_output(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", video_path],
+            stderr=subprocess.STDOUT, timeout=60,
+        ).decode().strip().split("x")
+        vw, vh = int(probe[0]), int(probe[1])
+    except Exception as e:
+        print(f"   ⚠️ Could not probe clip for text overlays ({e})")
+        return False
+
+    # Build a chain of drawtext filters
+    dt_parts = []
+    for ov in overlays:
+        raw_text = ov.get("text", "").strip()
+        if not raw_text:
+            continue
+        escaped = _escape_drawtext(raw_text)
+        x_pct = float(ov.get("x_pct", 0.5))
+        y_pct = float(ov.get("y_pct", 0.1))
+        # font_size is specified relative to 1080px width; scale to actual vw
+        base_size = int(ov.get("font_size", 60))
+        px_size = max(10, int(base_size * vw / 1080))
+
+        hex_color = (ov.get("color") or "#ffffff").lstrip("#")
+        if len(hex_color) == 3:
+            hex_color = "".join(c * 2 for c in hex_color)
+        ff_color = f"0x{hex_color}FF"
+
+        # Bold → try bold variant font if font_id is base name
+        font_id = ov.get("font_id", "arial")
+        if ov.get("bold") and font_id == "arial":
+            font_id = "arialbd"
+        elif ov.get("bold") and font_id == "ariblk":
+            font_id = "ariblk"  # already black
+        font_path = _resolve_font(font_id).replace("\\", "/").replace(":", "\\:")
+
+        # x/y: percentage of video dimension, with text centered at that point
+        x_expr = f"(w*{x_pct:.4f}-text_w/2)"
+        y_expr = f"(h*{y_pct:.4f}-text_h/2)"
+        # Clamp to stay inside frame
+        x_expr = f"max(4,min(w-text_w-4,{x_expr}))"
+        y_expr = f"max(4,min(h-text_h-4,{y_expr}))"
+
+        dt = (
+            f"drawtext=fontfile='{font_path}'"
+            f":text='{escaped}'"
+            f":x={x_expr}:y={y_expr}"
+            f":fontsize={px_size}"
+            f":fontcolor={ff_color}"
+            f":shadowcolor=0x00000088:shadowx=2:shadowy=2"
+        )
+        bg_color = ov.get("bg_color")
+        bg_opacity = float(ov.get("bg_opacity", 0.0))
+        if bg_color and bg_opacity > 0.01:
+            bg_hex = bg_color.lstrip("#")
+            if len(bg_hex) == 3:
+                bg_hex = "".join(c * 2 for c in bg_hex)
+            alpha_int = int(bg_opacity * 255)
+            dt += (
+                f":box=1:boxcolor=0x{bg_hex}{alpha_int:02X}"
+                f":boxborderw=8"
+            )
+        dt_parts.append(dt)
+
+    if not dt_parts:
+        return False
+
+    vf = ",".join(dt_parts)
+    tmp_path = output_path + ".txt.mp4"
+    cmd = ["ffmpeg", "-y", "-i", video_path,
+           "-vf", vf,
+           *video_encode_args(QUALITY), "-c:a", "copy", *METADATA_SCRUB,
+           "-movflags", "+faststart", tmp_path]
+    result = gpu_decode.run(
+        lambda on_gpu: gpu_decode.on_card(cmd, video_path) if on_gpu else cmd,
+        lambda c: subprocess.run(c, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=1800),
+        ok=lambda r: r.returncode == 0 and os.path.exists(tmp_path),
+        path=video_path)
+    if result.returncode == 0 and os.path.exists(tmp_path):
+        os.replace(tmp_path, output_path)
+        return True
+    err = (result.stderr or b"").decode(errors="ignore")[-400:]
+    print(f"   ⚠️ Text overlay pass failed: {err}")
+    if os.path.exists(tmp_path):
+        os.remove(tmp_path)
+    return False
+
+
 def mark_delivery(final_path, marker=None):
     """The free-plan copy of a finished clip to serve: ``wm_<final>`` next to it.
 
@@ -2205,6 +2461,28 @@ def get_viral_clips(transcript_result, video_duration, viewer_clips=None):
         # --- Pass 2: detailed clip extraction on the shortlist ---
         min_clips, max_clips = clip_count_targets(len(shortlist))
 
+        # Context grounding options (streamer, topic, notes, platform)
+        ctx_streamer = os.environ.get("CONTEXT_STREAMER") or getattr(args, "streamer", None)
+        ctx_topic = os.environ.get("CONTEXT_TOPIC") or getattr(args, "topic", None)
+        ctx_notes = os.environ.get("CONTEXT_NOTES") or getattr(args, "notes", None)
+        ctx_platform = os.environ.get("CONTEXT_PLATFORM") or getattr(args, "platform", None)
+
+        from manual_prompt_builder import (
+            contains_copied_example,
+            format_context_lines,
+            generate_fallback_metadata_from_transcript,
+            soften_profanity,
+        )
+
+        ctx_lines = format_context_lines(
+            source_title=video_title,
+            platform=ctx_platform,
+            streamer=ctx_streamer,
+            topic=ctx_topic,
+            notes=ctx_notes,
+        )
+        context_block = f"{ctx_lines}\n" if ctx_lines else ""
+
         def _detail_prompt_for(lo, hi):
             # A split batch keeps the full clip-count band: a short list can
             # still hold the best clips, and the model returns fewer anyway.
@@ -2213,12 +2491,46 @@ def get_viral_clips(transcript_result, video_duration, viewer_clips=None):
                     video_duration=video_duration, language=language,
                     min_clips=lo, max_clips=hi,
                     min_secs=min_secs, max_secs=max_secs,
-                    windows_json=json.dumps(_payload(ws), ensure_ascii=False))
+                    windows_json=json.dumps(_payload(ws), ensure_ascii=False),
+                    context_block=context_block)
             return build
 
         shorts = _run_stage_split(client, model_name, shortlist,
                                   _detail_prompt_for(min_clips, max_clips),
                                   gemini_worker.DetailResponse, "shorts", costs, "detail")
+
+        # Output guards on generated clips: detect copied examples, re-prompt once if found
+        def _has_bad_copy(s):
+            return (
+                contains_copied_example(s.get("video_title_for_youtube_short", ""))
+                or contains_copied_example(s.get("viral_hook_text", ""))
+                or contains_copied_example(s.get("video_description_for_tiktok", ""))
+                or contains_copied_example(s.get("video_description_for_instagram", ""))
+            )
+
+        if any(_has_bad_copy(s) for s in shorts):
+            print("   ⚠️ Model copied example text; re-prompting once with strict reminder...")
+            strict_reminder = (
+                "\n\nCRITICAL REMINDER: Do NOT copy example titles, hooks, or descriptions. "
+                "Write fresh, specific metadata describing ONLY what is spoken in this clip."
+            )
+
+            def _strict_prompt_for(lo, hi):
+                base_builder = _detail_prompt_for(lo, hi)
+                def build_strict(ws):
+                    return base_builder(ws) + strict_reminder
+                return build_strict
+
+            try:
+                retried = _run_stage_split(
+                    client, model_name, shortlist,
+                    _strict_prompt_for(min_clips, max_clips),
+                    gemini_worker.DetailResponse, "shorts", costs, "detail-retry",
+                )
+                if retried:
+                    shorts = retried
+            except Exception as e:
+                print(f"   ⚠️ Re-prompt failed ({e}); falling back to transcript grounding")
 
         # The floor lived only in the prompt, and a prompt is not a contract:
         # the model regularly returned half of it and the job shipped that.
@@ -2264,6 +2576,52 @@ def get_viral_clips(transcript_result, video_duration, viewer_clips=None):
             print(f"   Dropped {len(shorts) - len(deduped)} clip(s) overlapping a "
                   f"better-scored one.")
             shorts = deduped
+
+        # Output guard and metadata validation: enforce limits, profanity softening, and fallback
+        for s in shorts:
+            st = float(s.get("start", 0))
+            et = float(s.get("end", st + 20))
+
+            title = soften_profanity(str(s.get("video_title_for_youtube_short") or "").strip())
+            hook = soften_profanity(str(s.get("viral_hook_text") or "").strip())
+            desc_tt = soften_profanity(str(s.get("video_description_for_tiktok") or "").strip())
+            desc_ig = soften_profanity(str(s.get("video_description_for_instagram") or "").strip())
+
+            is_bad = (
+                _has_bad_copy(s)
+                or not title
+                or len(title) < 20
+                or title.lower() in ("clip 1", "clip #1", "viral moment", "untitled")
+            )
+
+            if is_bad:
+                fb = generate_fallback_metadata_from_transcript(
+                    st, et, words or transcript.get("segments", []),
+                    topic=ctx_topic, streamer=ctx_streamer
+                )
+                title = fb["video_title_for_youtube_short"]
+                hook = fb["viral_hook_text"]
+                desc_tt = fb["video_description_for_tiktok"]
+                desc_ig = fb["video_description_for_instagram"]
+
+            if len(title) > 70:
+                title = title[:70].rsplit(" ", 1)[0]
+            elif len(title) < 40:
+                title = (title + " - Key Highlights").strip()[:70]
+
+            hook_words = hook.split()
+            if len(hook_words) > 10:
+                hook = " ".join(hook_words[:10])
+
+            if len(desc_tt) > 200:
+                desc_tt = desc_tt[:200].rsplit(" ", 1)[0]
+            if len(desc_ig) > 200:
+                desc_ig = desc_ig[:200].rsplit(" ", 1)[0]
+
+            s["video_title_for_youtube_short"] = title
+            s["viral_hook_text"] = hook
+            s["video_description_for_tiktok"] = desc_tt
+            s["video_description_for_instagram"] = desc_ig
 
         # Aggregate cost across both passes.
         cost_analysis = None
@@ -2841,11 +3199,20 @@ if __name__ == '__main__':
                 from jsonfile import write_json_atomic
 
                 style_preset = os.environ.get("MANUAL_STYLE_PRESET", "viral")
+                ctx_streamer = os.environ.get("CONTEXT_STREAMER") or getattr(args, "streamer", None)
+                ctx_topic = os.environ.get("CONTEXT_TOPIC") or getattr(args, "topic", None)
+                ctx_notes = os.environ.get("CONTEXT_NOTES") or getattr(args, "notes", None)
+                ctx_platform = os.environ.get("CONTEXT_PLATFORM") or getattr(args, "platform", None)
+
                 prompt_pkg = build_manual_prompt(
                     transcript_result=transcript,
                     video_duration=duration,
                     video_title=video_title,
                     style_preset=style_preset,
+                    streamer=ctx_streamer,
+                    topic=ctx_topic,
+                    notes=ctx_notes,
+                    platform=ctx_platform,
                 )
 
                 prompt_file = os.path.join(output_dir, "manual_prompt.json")

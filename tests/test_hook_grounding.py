@@ -139,7 +139,7 @@ def test_empty_answer_keeps_the_old_hook(monkeypatch):
 # --- the cheap half: the detail prompt itself -------------------------------
 
 def test_detail_prompt_forbids_topic_summary_hooks():
-    assert "ABOUT THIS MOMENT, NOT THE VIDEO" in gemini_worker.DETAIL_PROMPT_TEMPLATE
+    assert "specific to what happens in THIS clip" in gemini_worker.DETAIL_PROMPT_TEMPLATE
     assert "{on_screen" not in gemini_worker.DETAIL_PROMPT_TEMPLATE  # no stray placeholders
     gemini_worker.GROUNDED_HOOK_PROMPT.format(
         language="es", current_hook="a", current_title="b", transcript="c")

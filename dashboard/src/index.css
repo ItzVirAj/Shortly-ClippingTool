@@ -274,3 +274,26 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Brand Accent Buttons (Auto Shorts) - solid brand pink with pure white text */
+.btn-brand-accent,
+button.btn-brand-accent {
+  background-color: #e31084 !important;
+  background: #e31084 !important;
+  color: #ffffff !important;
+  border-color: #e31084 !important;
+  opacity: 1 !important;
+}
+
+.btn-brand-accent *,
+button.btn-brand-accent *,
+.btn-brand-accent span,
+button.btn-brand-accent span,
+.btn-brand-accent svg,
+button.btn-brand-accent svg {
+  color: #ffffff !important;
+  fill: #ffffff !important;
+  stroke: #ffffff !important;
+  opacity: 1 !important;
+}
+

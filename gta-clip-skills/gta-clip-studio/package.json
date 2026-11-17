@@ -1,0 +1,8 @@
+{
+  "name": "gta-clip-studio",
+  "private": true,
+  "description": "Overlay renderer for GTA Clipping Studio Pro Shorts",
+  "dependencies": {
+    "playwright": "^1.49.1"
+  }
+}

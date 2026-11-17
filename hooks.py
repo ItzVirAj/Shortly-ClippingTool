@@ -208,6 +208,10 @@ HOOK_STYLES = {
     # black bold sans (Montserrat ExtraBold).
     "pill":    {"box": (255, 255, 255, 250), "text": (0, 0, 0), "outline": None, "shadow": False,
                 "font": PILL_FONT_PATH, "pills": True},
+    # Cyan neon glow pill (Gaming Shorts / YouTube style like CaseOh / GTA clips)
+    "cyan_glow": {"box": (12, 18, 28, 235),  "text": (255, 255, 255), "outline": None,
+                  "border": (0, 242, 254, 255), "border_width": 3, "shadow": True,
+                  "shadow_color": (0, 242, 254, 180), "font": PILL_FONT_PATH, "pills": True},
     # White card, black serif text (original look).
     "classic": {"box": (255, 255, 255, 240), "text": (0, 0, 0), "outline": None, "shadow": True},
     # Dark card, white text.
@@ -223,7 +227,8 @@ HOOK_STYLES = {
 }
 
 
-def _draw_pills(lines, font, emoji_font, font_size, box_fill, text_fill, output_image_path):
+def _draw_pills(lines, font, emoji_font, font_size, box_fill, text_fill, output_image_path,
+                border=None, border_width=0, shadow=False, shadow_color=None):
     """One rounded box per line, stacked and centred (the "pill" style).
 
     Every box has the same height (from the font's own ascent/descent plus
@@ -237,16 +242,33 @@ def _draw_pills(lines, font, emoji_font, font_size, box_fill, text_fill, output_
     top, bottom = probe.textbbox((0, 0), "ÁÉÍÓÚÑgjpqy", font=font)[1::2]
     line_h = (bottom - top) + 2 * pad_y
     widths = [int(_measure_width(probe, ln, font, emoji_font)) for ln in lines]
-    canvas_w = max(widths) + 2 * pad_x + 40
-    canvas_h = line_h * len(lines) + 40
+    canvas_w = max(widths) + 2 * pad_x + 60
+    canvas_h = line_h * len(lines) + 60
 
     img = Image.new('RGBA', (canvas_w, canvas_h), (0, 0, 0, 0))
+
+    if shadow:
+        glow_img = Image.new('RGBA', (canvas_w, canvas_h), (0, 0, 0, 0))
+        glow_draw = ImageDraw.Draw(glow_img)
+        glow_fill = shadow_color or (0, 0, 0, 160)
+        for i, (ln, w) in enumerate(zip(lines, widths)):
+            box_w = w + 2 * pad_x
+            x0 = (canvas_w - box_w) // 2
+            y0 = 30 + i * line_h
+            glow_draw.rounded_rectangle([x0 - 2, y0 - 2, x0 + box_w + 2, y0 + line_h + 2],
+                                        radius=radius + 2, fill=glow_fill)
+        glow_blurred = glow_img.filter(ImageFilter.GaussianBlur(radius=8))
+        img.alpha_composite(glow_blurred)
+
     draw = ImageDraw.Draw(img)
     for i, (ln, w) in enumerate(zip(lines, widths)):
         box_w = w + 2 * pad_x
         x0 = (canvas_w - box_w) // 2
-        y0 = 20 + i * line_h
-        draw.rounded_rectangle([x0, y0, x0 + box_w, y0 + line_h], radius=radius, fill=box_fill)
+        y0 = 30 + i * line_h
+        outline_args = {}
+        if border and border_width > 0:
+            outline_args = {"outline": border, "width": border_width}
+        draw.rounded_rectangle([x0, y0, x0 + box_w, y0 + line_h], radius=radius, fill=box_fill, **outline_args)
         _draw_mixed(img, draw, (x0 + pad_x, y0 + pad_y - top), ln, font, emoji_font,
                     fill=text_fill, outline=None)
     img.save(output_image_path)
@@ -347,7 +369,11 @@ def create_hook_image(text, target_width, output_image_path="hook_overlay.png", 
 
     if pills:
         return _draw_pills(lines, font, emoji_font, font_size, box_fill, text_fill,
-                           output_image_path)
+                           output_image_path,
+                           border=look.get("border"),
+                           border_width=look.get("border_width", 0),
+                           shadow=look.get("shadow", False),
+                           shadow_color=look.get("shadow_color"))
 
     # Recalculate true width/height
     max_line_width = 0

@@ -293,83 +293,47 @@ Return only:
 }}
 """
 
-DETAIL_PROMPT_TEMPLATE = """
-You are a senior short-form video editor and viral copywriter.
-Choose the BEST short clips from these shortlisted candidate windows.
+DETAIL_PROMPT_TEMPLATE = """You are an expert short-form video editor for TikTok, YouTube Shorts and Instagram Reels. I give you a timestamped transcript. Find the best standalone moments and write the title, hook and descriptions for each.
 
-CLIP RULES:
-- Return only valid JSON.
-- Each clip must be {min_secs:g} to {max_secs:g} seconds long, in absolute seconds from the start of the source video.
-- Stay within the candidate window boundaries.
-- THE 2-SECOND RULE: the clip MUST open on its strongest moment. If the first
-  2 seconds would not stop a cold viewer from scrolling, move the start or skip the clip.
-- Start slightly before the hook and end slightly after the payoff when possible.
-- When a window has `viewer_moments` ([start, end] stretches the stream's
-  viewers clipped), the best clip of that window should cover the strongest
-  of them, opening a few seconds before it so the moment has its setup.
-- Do not cut in the middle of a word or phrase.
-- No generic intros/outros unless they are the hook.
-- STANDS ALONE: the clip must make sense to someone who has seen nothing else.
-  If it opens on a pronoun, a "that", a "so anyway", or an answer whose question
-  was asked earlier, move the start back to where the idea begins or skip it.
-  A brilliant moment that needs the previous five minutes is not a clip.
-  Fix this by moving the START earlier, never by cutting the ending short: a
-  clip that loses its payoff to gain context has traded down.
-- HOW MANY: return {min_clips} to {max_clips} clips. Work through EVERY candidate
-  window — they were already scored as the best moments in the video, so a window
-  that yields nothing should be the exception, not the norm. Two or three clips
-  from one window are fine when they are genuinely different moments. The rules
-  above let you skip a weak clip; they are not a licence to return one clip and
-  stop. Only fall short of {min_clips} when the material truly does not hold
-  them, and never pad with a clip you would not publish yourself.
-- DIVERSITY: never return two clips that make the same point, tell the same
-  story, or land the same joke — even across different windows. Pick the
-  stronger one and drop the other. Two clips on the same broad topic are fine
-  as long as each lands its own moment.
+CONTEXT (from the user; may be incomplete):
+{context_block}Anything not listed is unknown. Never guess names, games, or events that are not in this context or the transcript.
 
-HOOK PLAYBOOK — pick the strongest fitting pattern for `viral_hook_text` (max 10 words):
-- Open question: "Why does everyone get this wrong?"
-- Hot take / controversy: "Stop doing this. Seriously."
-- Number / fact shock: "97% of people miss this."
-- Story loop: "This one email almost ruined me."
-- POV / pattern interrupt: "POV: you finally understand it."
-(These are English PATTERNS — always write the actual hook in TRANSCRIPT_LANGUAGE.)
-- ABOUT THIS MOMENT, NOT THE VIDEO: the hook and the title name the concrete
-  thing that happens inside this clip — the tool being set up, the action,
-  the number, the claim, the name. A line that could sit on any clip of this
-  video ("I automated my clips with AI") is wrong. If nothing concrete can be
-  named, quote the clip's strongest sentence instead of summarising the topic.
+ABOUT THE TRANSCRIPT: It was produced automatically from audio. It may contain wrong words and missing parts, and you cannot see the video. Base everything on what the words clearly say. If the meaning is unclear, describe what is audibly happening (a loud reaction, an argument, a big win or loss, an escalating plea) in neutral words. Do not invent a storyline, topic, or lesson.
 
-COPY RULES — ALL text fields (descriptions, title, hook) MUST be written in TRANSCRIPT_LANGUAGE ({language}):
-- Descriptions (TikTok + Instagram): 1-2 punchy sentences that tease the payoff
-  without spoiling it, then 3-5 topically relevant hashtags. No generic hashtag spam.
-- `video_title_for_youtube_short`: max 100 chars, curiosity-driven, no fake claims.
-- `predicted_score`: honest 0-100 estimate of viral potential.
-- `why`: one sentence, max 20 words, naming what makes THIS moment worth a
-  clip — the specific hook, claim, number or payoff, not the topic.
+SELECTION:
+- Choose between {min_clips} and {max_clips} moments; fewer is better than weak ones.
+- Each clip is between {min_secs:g} and {max_secs:g} seconds. The total video duration is {video_duration} seconds.
+- "start" and "end" are numbers in total seconds taken from the transcript timestamps (for example 74.5, never "01:14"). Do not use times outside the transcript.
+- Start at a sentence opener or a strong moment, end on a payoff or natural stop. Do not cut mid-sentence. Clips must not overlap.
+- Editorial focus: High energy, punchy hooks, pattern interrupts, and curiosity gaps for TikTok/Reels/Shorts.
 
-TRANSCRIPT_LANGUAGE: {language}
-VIDEO_DURATION_SECONDS: {video_duration}
-CANDIDATE_WINDOWS_JSON:
+WRITING RULES for every clip:
+- Title: 40 to 70 characters, specific to what happens in THIS clip. Use concrete details from the transcript or context (numbers, names, objects, actions). No generic advice or lesson formulas ("Why 99% of people...", "The truth about...") unless the clip literally says that. No claim the clip does not deliver.
+- Hook text: at most 10 words, 1 to 2 emojis, taken from what is said or happens in the first seconds.
+- Description: 1 to 2 sentences (at most 200 characters) saying what happens, then 3 to 5 hashtags built from the real topic, context, and transcript.
+- Keep profanity out of the title, hook, and description; use a milder word that keeps the meaning.
+- Write in the same language as the transcript ({language}).
+- Every field must be written fresh for the clip. Do not reuse any wording from this schema.
+
+OUTPUT: only a JSON array (one code block is fine), no other text. One object per clip with these fields:
+[
+  {{
+    "start": number - start timestamp in total seconds from the transcript,
+    "end": number - end timestamp in total seconds from the transcript,
+    "source_window_id": string - candidate window identifier or segment id,
+    "predicted_score": integer - estimated viral score from 0 to 100,
+    "video_title_for_youtube_short": string - specific title (40 to 70 characters) based on concrete events in this clip,
+    "viral_hook_text": string - hook text (at most 10 words, 1 to 2 emojis) from the opening seconds,
+    "video_description_for_tiktok": string - 1 to 2 sentences (at most 200 characters) plus 3 to 5 relevant hashtags,
+    "video_description_for_instagram": string - 1 to 2 sentences (at most 200 characters) plus 3 to 5 relevant hashtags,
+    "why": string - brief explanation of why this moment was selected
+  }}
+]
+
+TRANSCRIPT:
 {windows_json}
 
-Return only:
-{{
-  "shorts": [
-    {{
-      "start": <number>,
-      "end": <number>,
-      "source_window_id": "<window id>",
-      "predicted_score": <integer 0-100>,
-      "video_description_for_tiktok": "<description + hashtags>",
-      "video_description_for_instagram": "<description + hashtags>",
-      "video_title_for_youtube_short": "<title max 100 chars>",
-      "viral_hook_text": "<short overlay max 10 words>",
-      "why": "<one sentence, max 20 words>"
-    }}
-  ]
-}}
-"""
+REMINDER: JSON only. Title, hook, and descriptions must describe this clip, using the context and transcript, and must not copy the schema text."""
 
 
 def _strip_code_fences(text: str) -> str:
@@ -386,10 +350,15 @@ def _strip_code_fences(text: str) -> str:
 
 def _extract_json_candidate(text: str) -> str:
     cleaned = _strip_code_fences(text)
-    start = cleaned.find("{")
-    end = cleaned.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        return cleaned[start:end + 1]
+    first_b = cleaned.find("[")
+    last_b = cleaned.rfind("]")
+    first_c = cleaned.find("{")
+    last_c = cleaned.rfind("}")
+
+    if first_b != -1 and last_b != -1 and last_b > first_b and (first_c == -1 or first_b < first_c):
+        return cleaned[first_b:last_b + 1]
+    if first_c != -1 and last_c != -1 and last_c > first_c:
+        return cleaned[first_c:last_c + 1]
     return cleaned
 
 
@@ -421,7 +390,10 @@ def _parse_json_response_text(text: str) -> dict:
     last_error: Optional[Exception] = None
     for parse_candidate in parse_attempts:
         try:
-            return json.loads(parse_candidate)
+            parsed = json.loads(parse_candidate)
+            if isinstance(parsed, list):
+                return {"shorts": parsed}
+            return parsed
         except json.JSONDecodeError as e:
             last_error = e
     raise ValueError(f"Failed to parse Gemini JSON response: {last_error}")

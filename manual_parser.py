@@ -11,6 +11,12 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from manual_prompt_builder import (
+    contains_copied_example,
+    generate_fallback_metadata_from_transcript,
+    soften_profanity,
+)
+
 
 def parse_timestamp_to_seconds(val: Union[str, int, float]) -> Optional[float]:
     """Parse various timestamp representations into float seconds.
@@ -191,14 +197,20 @@ def _extract_metadata_from_line(line: str, clip: Dict[str, Any]) -> None:
         clip["video_title_for_youtube_short"] = line.strip().strip('"\'')
 
 
+def has_copied_examples(raw_text: str) -> bool:
+    """Return True if user input contains any known copied prompt examples."""
+    return contains_copied_example(raw_text)
+
+
 def normalize_clip_item(
     item: Dict[str, Any],
     index: int,
     video_duration: float = 0.0,
     min_duration: float = 8.0,
     max_duration: float = 180.0,
+    transcript_segments: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Validate, sanitize, and format a raw clip candidate into canonical schema."""
+    """Validate, sanitize, guard, and format a raw clip candidate into canonical schema."""
     if not isinstance(item, dict):
         return None
 
@@ -231,12 +243,44 @@ def normalize_clip_item(
     title = str(item.get("video_title_for_youtube_short") or item.get("title") or item.get("video_title") or "").strip()
     why = str(item.get("why") or item.get("reason") or "").strip()
 
-    if not title:
-        title = f"Viral Moment #{index + 1}"
+    # Apply profanity filter
+    hook_text = soften_profanity(hook_text)
+    title = soften_profanity(title)
+    why = soften_profanity(why)
 
-    if not hook_text:
-        # Fallback to title or default attention hook
-        hook_text = title if len(title) <= 50 else "Watch this moment 🔥"
+    # Check for copied example text or generic titles
+    is_copied = contains_copied_example(title) or contains_copied_example(hook_text)
+    is_generic = (
+        not title
+        or len(title) < 20
+        or title.lower() in ("clip 1", "clip #1", "viral moment", "viral moment #1", "untitled", "video title")
+    )
+
+    if is_copied or is_generic:
+        if transcript_segments:
+            fb = generate_fallback_metadata_from_transcript(start_sec, end_sec, transcript_segments)
+            title = fb["video_title_for_youtube_short"]
+            hook_text = fb["viral_hook_text"]
+        else:
+            title = f"Clip #{index + 1} - Key Moment in Stream" if is_copied or not title else title
+
+    # Character limits on title (40 to 70 chars)
+    if len(title) > 70:
+        title = title[:70].rsplit(" ", 1)[0]
+    elif len(title) < 40:
+        title = (title + " - Key Highlights").strip()[:70]
+
+    # Hook rules (at most 10 words)
+    if not hook_text or contains_copied_example(hook_text):
+        if transcript_segments:
+            fb = generate_fallback_metadata_from_transcript(start_sec, end_sec, transcript_segments)
+            hook_text = fb["viral_hook_text"]
+        else:
+            hook_text = (title[:40].rsplit(" ", 1)[0] if len(title) > 40 else title) + " 👀"
+
+    words = hook_text.split()
+    if len(words) > 10:
+        hook_text = " ".join(words[:10])
 
     # Score calculation
     raw_score = item.get("predicted_score") or item.get("score")
@@ -247,8 +291,28 @@ def normalize_clip_item(
         score = max(50, 95 - (index * 3))
 
     # Social descriptions
-    tiktok_desc = str(item.get("video_description_for_tiktok") or f"{title} #shorts #viral #fyp").strip()
-    insta_desc = str(item.get("video_description_for_instagram") or f"{title} #reels #viral").strip()
+    raw_tiktok = item.get("video_description_for_tiktok")
+    raw_insta = item.get("video_description_for_instagram")
+
+    tiktok_desc = str(raw_tiktok if raw_tiktok is not None else f"{title} #shorts #viral #fyp").strip()
+    insta_desc = str(raw_insta if raw_insta is not None else f"{title} #reels #viral").strip()
+
+    tiktok_desc = soften_profanity(tiktok_desc)
+    insta_desc = soften_profanity(insta_desc)
+
+    if contains_copied_example(tiktok_desc) or contains_copied_example(insta_desc):
+        if transcript_segments:
+            fb = generate_fallback_metadata_from_transcript(start_sec, end_sec, transcript_segments)
+            tiktok_desc = fb["video_description_for_tiktok"]
+            insta_desc = fb["video_description_for_instagram"]
+        else:
+            tiktok_desc = f"{title} #shorts #viral"
+            insta_desc = f"{title} #reels #viral"
+
+    if len(tiktok_desc) > 200:
+        tiktok_desc = tiktok_desc[:200].rsplit(" ", 1)[0]
+    if len(insta_desc) > 200:
+        insta_desc = insta_desc[:200].rsplit(" ", 1)[0]
 
     source_window = str(item.get("source_window_id") or f"manual_w{index + 1}")
 
@@ -271,6 +335,7 @@ def extract_clips_from_raw_text(
     video_duration: float = 0.0,
     min_duration: float = 8.0,
     max_duration: float = 180.0,
+    transcript_segments: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """Main extraction routine.
 
@@ -287,7 +352,6 @@ def extract_clips_from_raw_text(
     if isinstance(parsed_json, list):
         raw_items = [x for x in parsed_json if isinstance(x, dict)]
     elif isinstance(parsed_json, dict):
-        # Look for standard wrapper keys (shorts, clips, moments, results, windows)
         for key in ("shorts", "clips", "moments", "results", "windows", "data"):
             val = parsed_json.get(key)
             if isinstance(val, list):
@@ -309,6 +373,7 @@ def extract_clips_from_raw_text(
             video_duration=video_duration,
             min_duration=min_duration,
             max_duration=max_duration,
+            transcript_segments=transcript_segments,
         )
         if norm:
             valid_clips.append(norm)

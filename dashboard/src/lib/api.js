@@ -40,9 +40,37 @@ export function openQuotaWall(err, source) {
 
 // Drop-in fetch wrapper. Always attaches the bearer token when present.
 export async function apiFetch(path, options = {}) {
-  const headers = new Headers(options.headers || {});
+  const headers = new Headers();
+  if (options.headers) {
+    if (options.headers instanceof Headers) {
+      options.headers.forEach((v, k) => {
+        if (v != null) {
+          const safeVal = String(v).trim().replace(/[^\x20-\x7E]/g, '');
+          if (safeVal) headers.set(k, safeVal);
+        }
+      });
+    } else if (Array.isArray(options.headers)) {
+      options.headers.forEach(([k, v]) => {
+        if (v != null) {
+          const safeVal = String(v).trim().replace(/[^\x20-\x7E]/g, '');
+          if (safeVal) headers.set(k, safeVal);
+        }
+      });
+    } else if (typeof options.headers === 'object') {
+      Object.entries(options.headers).forEach(([k, v]) => {
+        if (v != null) {
+          const safeVal = String(v).trim().replace(/[^\x20-\x7E]/g, '');
+          if (safeVal) headers.set(k, safeVal);
+        }
+      });
+    }
+  }
+
   const token = getToken();
-  if (token) headers.set('Authorization', `Bearer ${token}`);
+  if (token) {
+    const safeToken = String(token).trim().replace(/[^\x20-\x7E]/g, '');
+    if (safeToken) headers.set('Authorization', `Bearer ${safeToken}`);
+  }
 
   const res = await fetch(getApiUrl(path), { ...options, headers });
 

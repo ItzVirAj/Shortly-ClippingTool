@@ -263,6 +263,13 @@ a.btn-brand-accent {
   border-color: #e31084 !important;
   box-shadow: 0 4px 14px 0 rgba(227, 16, 132, 0.35) !important;
 }
+.theme-unicorn .btn-brand-accent *,
+.theme-unicorn button.btn-brand-accent *,
+.btn-brand-accent *,
+button.btn-brand-accent * {
+  color: #ffffff !important;
+  fill: #ffffff;
+}
 .theme-unicorn button[data-tutorial="generate"]:hover,
 .theme-unicorn button.btn-generate-clips:hover,
 button.btn-generate-clips:hover,
@@ -736,3 +743,38 @@ button.btn-brand-accent:disabled {
   opacity: 0.8 !important;
   cursor: not-allowed !important;
 }
+
+/* Ensure Auto Shorts and brand accent buttons are always brand pink background with pure white text and icon */
+.theme-unicorn .btn-brand-accent,
+.theme-unicorn button.btn-brand-accent,
+.theme-unicorn div.grid button.btn-brand-accent,
+.btn-brand-accent,
+button.btn-brand-accent {
+  background-color: #e31084 !important;
+  background: #e31084 !important;
+  color: #ffffff !important;
+  border-color: #e31084 !important;
+  opacity: 1 !important;
+}
+
+.theme-unicorn .btn-brand-accent *,
+.theme-unicorn button.btn-brand-accent *,
+.theme-unicorn div.grid button.btn-brand-accent *,
+.theme-unicorn .btn-brand-accent span,
+.theme-unicorn button.btn-brand-accent span,
+.theme-unicorn div.grid button.btn-brand-accent span,
+.theme-unicorn .btn-brand-accent svg,
+.theme-unicorn button.btn-brand-accent svg,
+.theme-unicorn div.grid button.btn-brand-accent svg,
+.btn-brand-accent *,
+button.btn-brand-accent *,
+.btn-brand-accent span,
+button.btn-brand-accent span,
+.btn-brand-accent svg,
+button.btn-brand-accent svg {
+  color: #ffffff !important;
+  fill: #ffffff !important;
+  stroke: #ffffff !important;
+  opacity: 1 !important;
+}
+

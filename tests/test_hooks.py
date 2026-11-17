@@ -61,8 +61,15 @@ class TestHookStyles:
 
     def test_expected_style_names(self):
         assert set(HOOK_STYLES) == {
-            "pill", "classic", "dark", "yellow", "red", "outline", "outline_yellow",
+            "pill", "cyan_glow", "classic", "dark", "yellow", "red", "outline", "outline_yellow",
         }
+
+    def test_cyan_glow_has_border_and_glow(self):
+        look = HOOK_STYLES["cyan_glow"]
+        assert look["pills"] is True
+        assert look["border"] == (0, 242, 254, 255)
+        assert look["border_width"] >= 2
+        assert look["shadow"] is True
 
     def test_pill_is_one_box_per_line_in_the_bundled_sans(self):
         look = HOOK_STYLES["pill"]

@@ -162,9 +162,9 @@ class TestDetailPromptCarriesTheCount:
         low, high = clip_count_targets(5)
         prompt = gw.DETAIL_PROMPT_TEMPLATE.format(
             video_duration=300, language="es", min_clips=low, max_clips=high,
-            min_secs=15.0, max_secs=60.0, windows_json="[]")
-        assert f"return {low} to {high} clips" in prompt
-        assert "15 to 60 seconds" in prompt
+            min_secs=15.0, max_secs=60.0, windows_json="[]", context_block="")
+        assert (f"{low} and {high} moments" in prompt) or (f"return {low} to {high} clips" in prompt)
+        assert ("15 and 60 seconds" in prompt) or ("15 to 60 seconds" in prompt)
         # The JSON schema example legitimately keeps braces (they are {{ }} in
         # the template), so assert on unsubstituted placeholders specifically.
         assert re.findall(r"\{[a-z_]+\}", prompt) == []

@@ -31,6 +31,7 @@ import TrialGate from './components/TrialGate';
 import AdvancedBanner from './components/AdvancedBanner';
 import HistoryTab from './components/HistoryTab';
 import AutopilotTab from './components/AutopilotTab';
+import LiveClipperTab from './components/liveclipper/LiveClipperTab';
 import ProfileMenu from './components/ProfileMenu';
 import Sidebar from './components/Sidebar';
 import Modal from './components/ui/Modal';
@@ -66,20 +67,20 @@ const decrypt = (text) => {
   if (text.startsWith(ENCRYPTION_PREFIX)) {
     try {
       const raw = text.slice(ENCRYPTION_PREFIX.length);
-      // Check if it's plain base64 or our custom XOR (simple try)
       const xor = atob(raw);
       const result = xor.split('').map((c, i) =>
         String.fromCharCode(c.charCodeAt(0) ^ SECRET_KEY.charCodeAt(i % SECRET_KEY.length))
       ).join('');
-      return result;
+      // Sanitize: ensure result only contains valid printable ASCII
+      if (/^[ -~]+$/.test(result)) {
+        return result;
+      }
+      return '';
     } catch (e) {
-      // Fallback if decryption fails (might be old plain text)
       return '';
     }
   }
-  // Backward compatibility: If no prefix, assume old plain text (or return empty if you want to force re-login)
-  // For migration: Return text as is, so it populates the field, and next save will encrypt it.
-  return text;
+  return typeof text === 'string' ? text.replace(/[^\x20-\x7E]/g, '') : '';
 };
 
 // Simple TikTok icon sine Lucide might not have it or it varies
@@ -952,10 +953,11 @@ function App() {
   // silent: background auto-fetch — never alert(), just log. Managed users need
   // no local key (the server resolves its own); BYOK sends the header.
   const fetchUserProfiles = async ({ silent = false } = {}) => {
-    if (!uploadPostKey && !isManaged) return;
+    const cleanKey = typeof uploadPostKey === 'string' ? uploadPostKey.trim().replace(/[^\x20-\x7E]/g, '') : '';
+    if (!cleanKey && !isManaged) return;
     try {
       const res = await apiFetch('/api/social/user', {
-        headers: uploadPostKey ? { 'X-Upload-Post-Key': uploadPostKey } : {}
+        headers: cleanKey ? { 'X-Upload-Post-Key': cleanKey } : {}
       });
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
@@ -1427,6 +1429,7 @@ function App() {
     { id: 'saasshorts', ord: '03', icon: Sparkles, label: 'AI Shorts', short: 'ai shorts', byok: true, primary: true },
     { id: 'ai-agent', ord: '04', icon: Bot, label: 'AI Agent', short: 'agent', byok: true },
     { id: 'ugc-gallery', ord: '05', icon: LayoutGrid, label: 'UGC Gallery', short: 'gallery', primary: true },
+    { id: 'liveclipper', ord: '05b', icon: Activity, label: 'Live Clipper', short: 'live', isNew: true, primary: true },
     { id: 'thumbnails', ord: '06', icon: Image, label: 'YouTube Studio', short: 'studio', primary: true },
     { id: 'thumbnail-maker', ord: '06b', icon: Image, label: 'Thumbnail Maker', short: 'thumbs', primary: true },
     { id: 'editor', ord: '07', icon: Film, label: 'Editor', short: 'editor', primary: true },
@@ -2240,6 +2243,19 @@ function App() {
             <EditorTab />
           )}
 
+          {/* View: Live Clipper */}
+          {activeTab === 'liveclipper' && (
+            <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
+              <div className="max-w-6xl mx-auto p-4 sm:p-6 md:p-8">
+                <LiveClipperTab
+                  onOpenInEditor={() => {
+                    setActiveTab('editor');
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
           {/* View: Gallery */}
           {/* {activeTab === 'gallery' && (
             <Gallery />
@@ -2267,10 +2283,21 @@ function App() {
               {/* Left Panel: Preview & Status (Apple Glassmorphism UI) */}
               <div className={`${status === 'complete' ? 'w-full md:w-[30%] lg:w-[25%]' : 'w-full md:w-[55%] lg:w-[60%]'} md:h-full flex flex-col shrink-0 md:shrink bg-white/[0.04] backdrop-blur-2xl border border-white/[0.08] border-t-white/[0.14] rounded-3xl p-3.5 sm:p-6 md:overflow-y-auto custom-scrollbar shadow-[0_8px_32px_rgba(0,0,0,0.36)] transition-all duration-700 ease-in-out`}>
                 <div className="mb-4 sm:mb-6 flex items-center justify-between gap-2">
-                  <h2 className="text-sm font-medium text-ink lowercase flex items-center gap-2">
-                    <Activity className={`text-brass ${status === 'processing' ? 'animate-pulse' : ''}`} size={18} />
-                    Live Analysis
-                  </h2>
+                  <div className="flex items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setStatus('idle')}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-mono text-ink2 hover:text-white bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 active:scale-95 transition-all cursor-pointer shadow-xs"
+                      title="Back to Studio workbench"
+                    >
+                      <ArrowLeft size={13} />
+                      <span>Back</span>
+                    </button>
+                    <h2 className="text-sm font-medium text-ink lowercase flex items-center gap-2">
+                      <Activity className={`text-brass ${status === 'processing' ? 'animate-pulse' : ''}`} size={18} />
+                      Live Analysis
+                    </h2>
+                  </div>
                   {status === 'error' ? (
                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-rose-500/10 text-rose-300 border border-rose-500/20 backdrop-blur-md">
                       <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
@@ -2438,17 +2465,15 @@ function App() {
                         </span>
                       )}
                     </h2>
-                    {status === 'error' && (
-                      <button
-                        type="button"
-                        onClick={() => setStatus('idle')}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-ink2 hover:text-ink bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 active:scale-[0.97] transition-all cursor-pointer"
-                        title="Return to Studio Workbench"
-                      >
-                        <ArrowLeft size={13} />
-                        <span>Studio</span>
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setStatus('idle')}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-ink2 hover:text-white bg-white/[0.04] hover:bg-white/[0.10] border border-white/10 active:scale-[0.97] transition-all cursor-pointer shadow-xs shrink-0"
+                      title="Return to Studio Workbench"
+                    >
+                      <ArrowLeft size={13} />
+                      <span>Studio Workbench</span>
+                    </button>
                   </div>
                   {results?.clips?.length > 0 && status === 'complete' && (
                     <div className="flex flex-col sm:flex-row sm:justify-end items-stretch sm:items-center gap-2">

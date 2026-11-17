@@ -1,7 +1,28 @@
-import React, { useState, useMemo } from 'react';
-import { Copy, Check, ExternalLink, Sparkles, AlertCircle, Film, Scissors, Loader2 } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Copy, Check, ExternalLink, Sparkles, AlertCircle, Film, Scissors, Loader2, ChevronDown, ChevronUp, Sliders } from 'lucide-react';
 import Modal from './ui/Modal';
 import { apiFetch } from '../lib/api';
+
+const COPIED_EXAMPLE_PHRASES = [
+  'why 99% of people fail early',
+  'why 99% of people',
+  'the brutal truth nobody admits',
+  'the brutal truth',
+  'how to master x in 3 steps',
+  'i wasn\'t supposed to share this',
+  'he did not see that coming',
+  'why does everyone get this wrong',
+  'stop doing this. seriously',
+  'stop doing this right now',
+  '97% of people miss this',
+  'this one email almost ruined me',
+  'pov: you finally understand it',
+  'i automated my clips with ai',
+  '3 big mistakes in code',
+  'coding secrets',
+  'watch this moment',
+  'viral moment #'
+];
 
 /**
  * Parses raw text from ChatGPT / Claude / Gemini client-side for live preview.
@@ -82,23 +103,78 @@ export default function ManualPromptModal({ isOpen, onClose, jobId, promptPackag
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const promptText = promptPackage?.prompt_text || '';
+  // Context fields (collapsible, optional)
+  const [contextOpen, setContextOpen] = useState(false);
+  const [streamer, setStreamer] = useState(promptPackage?.streamer || '');
+  const [topic, setTopic] = useState(promptPackage?.topic || '');
+  const [notes, setNotes] = useState(promptPackage?.notes || '');
+
+  // Synchronize initial values from promptPackage
+  useEffect(() => {
+    if (promptPackage?.streamer) setStreamer(promptPackage.streamer);
+    if (promptPackage?.topic) setTopic(promptPackage.topic);
+    if (promptPackage?.notes) setNotes(promptPackage.notes);
+  }, [promptPackage]);
+
+  // Dynamically regenerate prompt text when user edits optional context
+  const activePromptText = useMemo(() => {
+    const base = promptPackage?.prompt_text || '';
+    if (!base) return '';
+
+    const lines = [];
+    if (promptPackage?.video_title) lines.push(`- Source title: ${promptPackage.video_title}`);
+    if (promptPackage?.platform) lines.push(`- Platform: ${promptPackage.platform}`);
+    if (streamer.trim()) lines.push(`- Streamer or channel: ${streamer.trim()}`);
+    if (topic.trim()) lines.push(`- Topic or game: ${topic.trim()}`);
+    if (notes.trim()) lines.push(`- Notes: ${notes.trim()}`);
+
+    const contextBlock = lines.length > 0 ? `${lines.join('\n')}\n` : '';
+
+    const contextRegex = /CONTEXT \(from the user; may be incomplete\):\n[\s\S]*?Anything not listed is unknown\./;
+    if (contextRegex.test(base)) {
+      return base.replace(contextRegex, `CONTEXT (from the user; may be incomplete):\n${contextBlock}Anything not listed is unknown.`);
+    }
+    return base;
+  }, [promptPackage, streamer, topic, notes]);
+
+  // Sync updated context with backend so manual_prompt.json persists
+  useEffect(() => {
+    if (!jobId) return;
+    const timer = setTimeout(() => {
+      apiFetch(`/api/jobs/${jobId}/manual-prompt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ streamer, topic, notes }),
+      }).catch(() => {});
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [jobId, streamer, topic, notes]);
+
   const wordCount = promptPackage?.word_count || 0;
   const estTokens = promptPackage?.estimated_tokens || 0;
   const durationFmt = promptPackage?.video_duration_formatted || '00:00';
 
   const detectedClips = useMemo(() => parseClientClips(userInput), [userInput]);
 
+  // Output guard: detect if user pasted AI response containing forbidden example text
+  const isCopiedExample = useMemo(() => {
+    if (!userInput) return false;
+    const clean = userInput.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ');
+    return COPIED_EXAMPLE_PHRASES.some((phrase) => {
+      const pClean = phrase.replace(/[^\w\s]/g, ' ');
+      return clean.includes(pClean);
+    });
+  }, [userInput]);
+
   const handleCopy = async () => {
-    if (!promptText) return;
+    if (!activePromptText) return;
     try {
-      await navigator.clipboard.writeText(promptText);
+      await navigator.clipboard.writeText(activePromptText);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     } catch (_) {
-      // Fallback
       const ta = document.createElement('textarea');
-      ta.value = promptText;
+      ta.value = activePromptText;
       document.body.appendChild(ta);
       ta.select();
       document.execCommand('copy');
@@ -110,6 +186,10 @@ export default function ManualPromptModal({ isOpen, onClose, jobId, promptPackag
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isCopiedExample) {
+      setError('The AI copied the example text; ask it again.');
+      return;
+    }
     if (!userInput.trim()) {
       setError('Please paste your AI agent response.');
       return;
@@ -152,11 +232,71 @@ export default function ManualPromptModal({ isOpen, onClose, jobId, promptPackag
       title="Generate Viral Moments"
       size="lg"
     >
-      <div className="space-y-5 text-sm text-zinc-300">
+      <div className="space-y-4 text-sm text-zinc-300">
         <p className="text-zinc-400 text-xs sm:text-[13px] leading-relaxed">
-          Shortly has finished transcribing your video locally. Copy the engineered prompt below into{' '}
-          <strong className="text-zinc-200">ChatGPT, Claude, or Gemini</strong> to pick viral moments for free, then paste the response back to cut your clips.
+          Shortly has transcribed your video locally. Copy the prompt into{' '}
+          <strong className="text-zinc-200">ChatGPT, Claude, or Gemini</strong> to select viral moments for free, then paste the response back to cut your clips.
         </p>
+
+        {/* Collapsible Optional Context Card */}
+        <div className="rounded-xl bg-zinc-900/60 border border-zinc-800/80 overflow-hidden transition-all duration-200">
+          <button
+            type="button"
+            onClick={() => setContextOpen(!contextOpen)}
+            className="w-full px-4 py-2.5 flex items-center justify-between text-xs font-medium text-zinc-300 hover:text-white transition-colors cursor-pointer"
+          >
+            <span className="flex items-center gap-2 text-zinc-400">
+              <Sliders size={13} className="text-purple-400" />
+              <span>Context (optional)</span>
+              {(streamer || topic || notes) && (
+                <span className="px-1.5 py-0.2 rounded-md bg-purple-500/20 text-purple-300 text-[10px] font-mono">
+                  Active
+                </span>
+              )}
+            </span>
+            <div className="flex items-center gap-1.5 text-zinc-500 text-[11px]">
+              <span>{contextOpen ? 'Hide' : 'Add streamer, game, notes'}</span>
+              {contextOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </div>
+          </button>
+
+          {contextOpen && (
+            <div className="px-4 pb-3.5 pt-1 space-y-3 border-t border-zinc-800/50 bg-black/20">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-zinc-400">Streamer or channel</label>
+                  <input
+                    type="text"
+                    value={streamer}
+                    onChange={(e) => setStreamer(e.target.value)}
+                    placeholder="e.g. adinross, Tarik, MrBeast"
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-hidden focus:border-purple-500 transition-colors"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-zinc-400">Topic or game</label>
+                  <input
+                    type="text"
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
+                    placeholder="e.g. GTA V RP, Valorant, Tech debate"
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-hidden focus:border-purple-500 transition-colors"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-zinc-400">Notes (special context or focus)</label>
+                <input
+                  type="text"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="e.g. Look for intense chases, funny fails, or heated moments"
+                  className="w-full px-2.5 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-hidden focus:border-purple-500 transition-colors"
+                />
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Step 1: Copy Prompt & Quick Links */}
         <div className="p-4 rounded-xl bg-zinc-900/90 border border-zinc-800 space-y-3">
@@ -233,7 +373,7 @@ export default function ManualPromptModal({ isOpen, onClose, jobId, promptPackag
 
           {showPromptPreview && (
             <div className="mt-2 p-3 rounded-lg bg-black/60 border border-zinc-800 text-[11px] font-mono text-zinc-300 max-h-48 overflow-y-auto whitespace-pre-wrap select-all custom-scrollbar">
-              {promptText}
+              {activePromptText}
             </div>
           )}
         </div>
@@ -245,7 +385,7 @@ export default function ManualPromptModal({ isOpen, onClose, jobId, promptPackag
               <label htmlFor="ai-paste-area" className="text-xs font-semibold uppercase tracking-wider text-purple-400 flex items-center gap-1.5">
                 <Scissors size={14} /> Step 2: Paste AI Response Here
               </label>
-              {detectedClips.length > 0 && (
+              {detectedClips.length > 0 && !isCopiedExample && (
                 <span className="text-[11px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
                   <Check size={12} /> {detectedClips.length} {detectedClips.length === 1 ? 'Clip' : 'Clips'} Detected
                 </span>
@@ -260,13 +400,30 @@ export default function ManualPromptModal({ isOpen, onClose, jobId, promptPackag
                 setUserInput(e.target.value);
                 if (error) setError('');
               }}
-              placeholder={`Paste the JSON or timestamps from ChatGPT/Claude here...\nExample:\n[\n  {"start": 15.0, "end": 45.0, "viral_hook_text": "Mind blown 🤯", "video_title_for_youtube_short": "Title"}\n]`}
-              className="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 font-mono placeholder:text-zinc-600 focus:outline-hidden focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all custom-scrollbar resize-y"
+              placeholder={`Paste the JSON array from your AI agent here...\n[\n  {\n    "start": 15.0,\n    "end": 45.0,\n    "video_title_for_youtube_short": "<specific clip title 40-70 chars>",\n    "viral_hook_text": "<opening hook max 10 words>",\n    "video_description_for_tiktok": "<1-2 sentences + hashtags>",\n    "video_description_for_instagram": "<1-2 sentences + hashtags>"\n  }\n]`}
+              className={`w-full p-3 rounded-xl bg-zinc-950 border text-xs text-zinc-200 font-mono placeholder:text-zinc-600 focus:outline-hidden transition-all custom-scrollbar resize-y ${
+                isCopiedExample ? 'border-amber-500/60 focus:border-amber-500' : 'border-zinc-800 focus:border-purple-500'
+              }`}
             />
           </div>
 
+          {/* Copied Example Output Guard Warning */}
+          {isCopiedExample && (
+            <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs flex items-start gap-2.5">
+              <AlertCircle size={16} className="shrink-0 text-amber-400 mt-0.5" />
+              <div className="space-y-1">
+                <div className="font-semibold text-amber-300">
+                  The AI copied the example text; ask it again
+                </div>
+                <div className="text-[11px] text-amber-200/80 leading-relaxed">
+                  The AI pasted back generic or schema sample phrasing instead of analyzing this video's actual speech. Please re-prompt your AI and remind it to only use words from this transcript.
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Detected Clips Live Preview Cards */}
-          {detectedClips.length > 0 && (
+          {detectedClips.length > 0 && !isCopiedExample && (
             <div className="space-y-2">
               <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">
                 Live Preview of Detected Cuts
@@ -304,7 +461,7 @@ export default function ManualPromptModal({ isOpen, onClose, jobId, promptPackag
             </div>
           )}
 
-          {error && (
+          {error && !isCopiedExample && (
             <div className="p-3 rounded-xl bg-red-950/40 border border-red-500/30 text-red-300 text-xs flex items-center gap-2">
               <AlertCircle size={15} className="shrink-0 text-red-400" />
               <span>{error}</span>
@@ -323,7 +480,7 @@ export default function ManualPromptModal({ isOpen, onClose, jobId, promptPackag
             </button>
             <button
               type="submit"
-              disabled={submitting || detectedClips.length === 0}
+              disabled={submitting || detectedClips.length === 0 || isCopiedExample}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-semibold transition-all shadow-md shadow-emerald-500/20 cursor-pointer"
             >
               {submitting ? (

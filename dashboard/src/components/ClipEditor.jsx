@@ -2,8 +2,43 @@ import React, { useState, useEffect, useReducer, useRef, useCallback, useMemo, u
 import {
     X, Loader2, Plus, Trash2, ChevronUp, ChevronDown, Scissors,
     AlertCircle, Undo2, Redo2, ChevronsRight, ChevronsLeft,
-    PanelLeft, PanelLeftClose, Film,
+    PanelLeft, PanelLeftClose, Film, Frame, Type, Bold, Italic,
+    AlignLeft, AlignCenter, AlignRight, Palette,
 } from 'lucide-react';
+
+const FRAME_OPTIONS = [
+    { id: 'kick', label: 'Kick', color: '#53FC18' },
+    { id: 'youtube', label: 'YouTube', color: '#FF0000' },
+    { id: 'twitch', label: 'Twitch', color: '#9146FF' },
+    { id: 'instagram', label: 'Instagram', color: '#E1306C' },
+];
+
+const TEXT_FONTS = [
+    { id: 'impact',      label: 'Impact',    css: 'Impact, fantasy' },
+    { id: 'arialbd',     label: 'Arial Bold', css: '"Arial", sans-serif' },
+    { id: 'ariblk',      label: 'Arial Black', css: '"Arial Black", sans-serif' },
+    { id: 'bahnschrift', label: 'Bahnschrift', css: '"Bahnschrift", "Franklin Gothic Medium", sans-serif' },
+    { id: 'arial',       label: 'Arial',     css: '"Arial", sans-serif' },
+    { id: 'calibri',     label: 'Calibri',   css: '"Calibri", "Segoe UI", sans-serif' },
+    { id: 'candara',     label: 'Candara',   css: '"Candara", "Segoe UI", sans-serif' },
+    { id: 'comic',       label: 'Comic Sans', css: '"Comic Sans MS", cursive' },
+    { id: 'consola',     label: 'Consolas',  css: '"Consolas", monospace' },
+];
+
+let _textIdCounter = 1;
+const makeTextOverlay = () => ({
+    id: `txt_${_textIdCounter++}`,
+    text: 'Your Text',
+    x_pct: 0.5,
+    y_pct: 0.1,
+    font_size: 72,
+    font_id: 'impact',
+    color: '#ffffff',
+    bold: false,
+    italic: false,
+    bg_color: '#000000',
+    bg_opacity: 0.0,
+});
 import { getApiUrl, withParam } from '../config';
 import { apiFetch, apiJson, QuotaError, openQuotaWall } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -104,6 +139,20 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
 
     const [snapToWords, setSnapToWords] = useState(true);
     const [reapplyCaptions, setReapplyCaptions] = useState(true);
+    // Brand Frames: 'kick' | 'youtube' | 'twitch' | 'instagram' | null
+    const [frameType, setFrameType] = useState(null);
+    const [frameScale, setFrameScale] = useState(1.0);
+    const [frameX, setFrameX] = useState(0.0);
+    const [frameY, setFrameY] = useState(0.95);
+    const [isDraggingFrame, setIsDraggingFrame] = useState(false);
+    const [framingApplyLoading, setFramingApplyLoading] = useState(false);
+    const previewContainerRef = useRef(null);
+    // Text overlays
+    const [textOverlays, setTextOverlays] = useState([]);
+    const [selectedTextId, setSelectedTextId] = useState(null);
+    const [isDraggingText, setIsDraggingText] = useState(false);
+    const [renderedFrameType, setRenderedFrameType] = useState(null);
+    const [renderedTextOverlays, setRenderedTextOverlays] = useState([]);
     // Framing override: 'auto' (classifier) | 'full' (whole frame) | 'track'.
     const [framing, setFraming] = useState('auto');
     const [renderedFraming, setRenderedFraming] = useState('auto');
@@ -190,6 +239,16 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                 setRenderedSegments(data.segments.map((s) => ({ ...s })));
                 setFraming(data.framing || 'auto');
                 setRenderedFraming(data.framing || 'auto');
+                const loadedFrame = data.frame_type || (data.kick_framed ? 'kick' : null);
+                setFrameType(loadedFrame);
+                setRenderedFrameType(loadedFrame);
+                if (data.frame_scale) setFrameScale(data.frame_scale);
+                if (data.frame_x_pct !== undefined) setFrameX(data.frame_x_pct);
+                if (data.frame_y_pct !== undefined && data.frame_y_pct !== null) setFrameY(data.frame_y_pct);
+                if (data.text_overlays?.length) {
+                    setTextOverlays(data.text_overlays.map((t) => ({ ...t, id: t.id || `txt_${_textIdCounter++}` })));
+                    setRenderedTextOverlays(data.text_overlays);
+                }
                 setReapplyCaptions(true);
                 setPreviewUrl(getApiUrl(`/videos/${jobId}/${data.current_file}`));
             } catch (e) {
@@ -214,9 +273,13 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
     const total = totalOf(segments);
     const dirty = useMemo(() => {
         if (!renderedSegments) return false;
-        return JSON.stringify(segments) !== JSON.stringify(renderedSegments)
+        const segsDirty = JSON.stringify(segments) !== JSON.stringify(renderedSegments)
             || framing !== renderedFraming;
-    }, [segments, renderedSegments, framing, renderedFraming]);
+        const frameDirty = frameType !== renderedFrameType;
+        const textDirty = JSON.stringify(textOverlays.map(({ id: _id, ...rest }) => rest))
+            !== JSON.stringify((renderedTextOverlays || []).map(({ id: _id, ...rest }) => rest));
+        return segsDirty || frameDirty || textDirty;
+    }, [segments, renderedSegments, framing, renderedFraming, frameType, renderedFrameType, textOverlays, renderedTextOverlays]);
 
     // Trim bounds: with the source gone, cuts must stay inside the range the
     // canonical file was rendered from.
@@ -831,6 +894,160 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
         return () => window.removeEventListener('keydown', onKey);
     });
 
+    // ---- on-screen frame drag & drop ----------------------------------------
+    const startFrameDrag = (e) => {
+        if (e.button !== undefined && e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const container = previewContainerRef.current;
+        if (!container) return;
+        const rect = container.getBoundingClientRect();
+        try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* ignore */ }
+
+        setIsDraggingFrame(true);
+        const startClientY = e.clientY;
+        const startClientX = e.clientX;
+        const initY = frameY;
+        const initX = frameX;
+
+        const onMove = (ev) => {
+            const dy = (ev.clientY - startClientY) / rect.height;
+            const dx = (ev.clientX - startClientX) / rect.width;
+            let nextY = Math.max(0.04, Math.min(0.96, initY + dy));
+            let nextX = Math.max(-0.4, Math.min(0.4, initX + dx));
+            // Snap to bottom if near bottom edge
+            if (nextY >= 0.91) nextY = 0.95;
+            // Snap to top if near top edge
+            if (nextY <= 0.09) nextY = 0.05;
+            // Snap to horizontal center if within 3% of center
+            if (Math.abs(nextX) <= 0.03) nextX = 0.0;
+
+            setFrameY(Math.round(nextY * 1000) / 1000);
+            setFrameX(Math.round(nextX * 1000) / 1000);
+        };
+
+        const onUp = () => {
+            setIsDraggingFrame(false);
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
+        };
+
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
+    };
+
+    const handleApplyFrameNow = async () => {
+        if (!frameType || frameType === 'none') return;
+        setFramingApplyLoading(true);
+        setRenderError(null);
+        try {
+            const yPctVal = frameY >= 0.93 ? null : frameY;
+            const res = await apiFetch('/api/clip/frame', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    job_id: jobId,
+                    clip_index: clipIndex,
+                    frame_type: frameType,
+                    scale: frameScale,
+                    x_pct: frameX,
+                    y_pct: yPctVal,
+                }),
+            });
+            if (!res.ok) {
+                let detail = 'Failed to apply frame';
+                try { detail = (await res.json()).detail || detail; } catch { /* ignore */ }
+                throw new Error(detail);
+            }
+            const data = await res.json();
+            if (data.new_video_url) {
+                setPreviewUrl(withParam(getApiUrl(data.new_video_url), 't', Date.now()));
+                onRerendered?.(clipIndex, data);
+            }
+        } catch (e) {
+            setRenderError(e.message || 'Could not apply frame');
+        } finally {
+            setFramingApplyLoading(false);
+        }
+    };
+
+    const handleRemoveFrameNow = async () => {
+        setFramingApplyLoading(true);
+        setRenderError(null);
+        try {
+            const res = await apiFetch('/api/clip/frame', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    job_id: jobId,
+                    clip_index: clipIndex,
+                    frame_type: 'none',
+                    remove: true,
+                }),
+            });
+            if (!res.ok) throw new Error('Failed to remove frame');
+            const data = await res.json();
+            setFrameType(null);
+            if (data.new_video_url) {
+                setPreviewUrl(withParam(getApiUrl(data.new_video_url), 't', Date.now()));
+                onRerendered?.(clipIndex, data);
+            }
+        } catch (e) {
+            setRenderError(e.message || 'Could not remove frame');
+        } finally {
+            setFramingApplyLoading(false);
+        }
+    };
+
+    // ---- text overlay helpers -----------------------------------------------
+    const updateTextOverlay = useCallback((id, patch) => {
+        setTextOverlays((prev) => prev.map((t) => t.id === id ? { ...t, ...patch } : t));
+    }, []);
+
+    const deleteTextOverlay = useCallback((id) => {
+        setTextOverlays((prev) => prev.filter((t) => t.id !== id));
+        setSelectedTextId((cur) => cur === id ? null : cur);
+    }, []);
+
+    const startTextDrag = useCallback((e, textId) => {
+        if (e.button !== undefined && e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const container = previewContainerRef.current;
+        if (!container) return;
+        const rect = container.getBoundingClientRect();
+        try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* ignore */ }
+        setSelectedTextId(textId);
+        setIsDraggingText(true);
+        const startClientX = e.clientX;
+        const startClientY = e.clientY;
+        const overlay = textOverlays.find((t) => t.id === textId);
+        if (!overlay) return;
+        const initX = overlay.x_pct;
+        const initY = overlay.y_pct;
+
+        const onMove = (ev) => {
+            const dx = (ev.clientX - startClientX) / rect.width;
+            const dy = (ev.clientY - startClientY) / rect.height;
+            const nextX = Math.max(0.02, Math.min(0.98, initX + dx));
+            const nextY = Math.max(0.02, Math.min(0.98, initY + dy));
+            setTextOverlays((prev) => prev.map((t) =>
+                t.id === textId ? { ...t, x_pct: Math.round(nextX * 1000) / 1000, y_pct: Math.round(nextY * 1000) / 1000 } : t
+            ));
+        };
+        const onUp = () => {
+            setIsDraggingText(false);
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
+        };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
+    }, [textOverlays, previewContainerRef]);
+
     // ---- re-render ----------------------------------------------------------
     useEffect(() => {
         if (!rendering) return undefined;
@@ -854,6 +1071,13 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                     snap_to_words: false, // boundaries are already word-snapped client-side
                     reapply_captions: reapplyCaptions,
                     framing,
+                    frame_type: frameType || 'none',
+                    frame_scale: frameScale,
+                    frame_x_pct: frameX,
+                    frame_y_pct: frameY >= 0.93 ? null : frameY,
+                    text_overlays: textOverlays.length > 0
+                        ? textOverlays.map(({ id: _id, ...rest }) => rest)
+                        : [],
                 }),
             });
             if (!res.ok) {
@@ -865,6 +1089,8 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
             setRenderedSegments(data.recipe.segments.map((s) => ({ ...s })));
             setRenderedFraming(data.framing || 'auto');
             setFraming(data.framing || 'auto');
+            setRenderedFrameType(frameType);
+            setRenderedTextOverlays(textOverlays.map((t) => ({ ...t })));
             dispatch({ type: 'init', segments: data.recipe.segments.map((s) => ({ ...s })) });
             setPreviewUrl(withParam(getApiUrl(data.new_video_url), 't', Date.now()));
             onRerendered?.(clipIndex, data);
@@ -1309,7 +1535,10 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                         )}
                     </div>
                     <div className="flex-1 min-h-0 flex items-center justify-center">
-                        <div className="h-full max-h-full aspect-[9/16] bg-black rounded-card border border-rule overflow-hidden">
+                        <div
+                            ref={previewContainerRef}
+                            className="relative h-full max-h-full aspect-[9/16] bg-black rounded-card border border-rule overflow-hidden select-none group/player"
+                        >
                             <video
                                 ref={videoRef}
                                 src={previewUrl}
@@ -1321,6 +1550,93 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                                 onPlay={onClipPlay}
                                 onPause={stopPlayLoop}
                             />
+
+                            {/* Live Interactive Draggable Brand Frame Overlay */}
+                            {frameType && (
+                                <div
+                                    onPointerDown={startFrameDrag}
+                                    style={{
+                                        position: 'absolute',
+                                        top: `${frameY * 100}%`,
+                                        left: `${(frameX + (1 - frameScale) / 2) * 100}%`,
+                                        width: `${frameScale * 100}%`,
+                                        transform: 'translateY(-50%)',
+                                        cursor: isDraggingFrame ? 'grabbing' : 'grab',
+                                    }}
+                                    className={`z-20 group/frame touch-none transition-shadow ${
+                                        isDraggingFrame
+                                            ? 'ring-2 ring-brass shadow-2xl scale-[1.01]'
+                                            : 'hover:ring-1 hover:ring-brass/60'
+                                    }`}
+                                >
+                                    <img
+                                        src={`/frames/${frameType}.png`}
+                                        alt={`${frameType} frame`}
+                                        draggable={false}
+                                        className="w-full h-auto pointer-events-none drop-shadow-md select-none"
+                                    />
+
+                                    {/* Quick floating on-screen handle & position tooltip */}
+                                    <div className="absolute -top-7 left-1/2 -translate-x-1/2 opacity-0 group-hover/frame:opacity-100 transition-opacity bg-paper/90 backdrop-blur-md px-2 py-0.5 rounded-full border border-rule text-[10px] text-ink whitespace-nowrap shadow-md pointer-events-none flex items-center gap-1.5">
+                                        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: FRAME_OPTIONS.find(f => f.id === frameType)?.color || '#fff' }} />
+                                        <span>drag to position · Y: {Math.round(frameY * 100)}%</span>
+                                    </div>
+
+                                    {/* Corner Resize indicator handles */}
+                                    <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-brass rounded-sm opacity-0 group-hover/frame:opacity-100 transition-opacity pointer-events-none" />
+                                    <div className="absolute -bottom-1 -left-1 w-2.5 h-2.5 bg-brass rounded-sm opacity-0 group-hover/frame:opacity-100 transition-opacity pointer-events-none" />
+                                </div>
+                            )}
+                            {/* Draggable Text Overlays */}
+                            {textOverlays.map((ov) => {
+                                const fontDef = TEXT_FONTS.find((f) => f.id === ov.font_id) || TEXT_FONTS[0];
+                                const isSelected = selectedTextId === ov.id;
+                                return (
+                                    <div
+                                        key={ov.id}
+                                        onPointerDown={(e) => startTextDrag(e, ov.id)}
+                                        onClick={(e) => { e.stopPropagation(); setSelectedTextId(ov.id); }}
+                                        style={{
+                                            position: 'absolute',
+                                            top: `${ov.y_pct * 100}%`,
+                                            left: `${ov.x_pct * 100}%`,
+                                            transform: 'translate(-50%, -50%)',
+                                            cursor: isDraggingText && isSelected ? 'grabbing' : 'grab',
+                                            fontFamily: fontDef.css,
+                                            fontSize: `${Math.round(ov.font_size * 0.065)}cqw`,
+                                            color: ov.color || '#fff',
+                                            fontWeight: ov.bold ? 'bold' : 'normal',
+                                            fontStyle: ov.italic ? 'italic' : 'normal',
+                                            textShadow: '2px 2px 4px rgba(0,0,0,0.85)',
+                                            backgroundColor: ov.bg_opacity > 0.01
+                                                ? `${ov.bg_color || '#000'}${Math.round((ov.bg_opacity || 0) * 255).toString(16).padStart(2, '0')}`
+                                                : 'transparent',
+                                            padding: ov.bg_opacity > 0.01 ? '2px 8px' : '0',
+                                            borderRadius: ov.bg_opacity > 0.01 ? '3px' : '0',
+                                            userSelect: 'none',
+                                            whiteSpace: 'pre-wrap',
+                                            maxWidth: '90%',
+                                            textAlign: 'center',
+                                            lineHeight: 1.1,
+                                        }}
+                                        className={`z-30 touch-none transition-[outline] ${isSelected ? 'outline outline-2 outline-brass outline-offset-2' : 'hover:outline hover:outline-1 hover:outline-brass/60 hover:outline-offset-1'}`}
+                                    >
+                                        {ov.text || '…'}
+                                        {/* Delete handle */}
+                                        {isSelected && (
+                                            <button
+                                                type="button"
+                                                onPointerDown={(e) => e.stopPropagation()}
+                                                onClick={(e) => { e.stopPropagation(); deleteTextOverlay(ov.id); }}
+                                                className="absolute -top-5 -right-5 w-5 h-5 rounded-full bg-danger text-white flex items-center justify-center shadow-md"
+                                                title="Remove text"
+                                            >
+                                                <X size={10} />
+                                            </button>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
 
@@ -1523,6 +1839,157 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                                     <span className="w-8 h-4 rounded-full bg-paper3 peer-checked:bg-brass transition-colors after:content-[''] after:absolute after:left-0.5 after:top-0.5 after:w-3 after:h-3 after:rounded-full after:bg-ink after:transition-transform peer-checked:after:translate-x-4" />
                                 </span>
                             </label>
+                        {/* Brand Frames section */}
+                        <div className="space-y-2.5 pt-3 border-t border-rule">
+                            <div className="flex items-center justify-between">
+                                <p className="eyebrow">Frames</p>
+                                {frameType && (
+                                    <button
+                                        type="button"
+                                        onClick={handleRemoveFrameNow}
+                                        disabled={framingApplyLoading}
+                                        className="text-[11px] text-danger hover:underline lowercase"
+                                    >
+                                        clear frame
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* 4 Platform Options */}
+                            <div className="grid grid-cols-4 gap-1.5">
+                                {FRAME_OPTIONS.map((item) => (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        onClick={() => {
+                                            if (frameType === item.id) {
+                                                setFrameType(null);
+                                            } else {
+                                                setFrameType(item.id);
+                                                if (frameY < 0.2) setFrameY(0.95);
+                                            }
+                                        }}
+                                        className={`flex flex-col items-center justify-center gap-1.5 py-2 px-1 rounded-input border text-xs lowercase transition-all
+                                            ${frameType === item.id
+                                                ? 'border-[color:var(--color-accent)] bg-paper3 text-ink font-medium shadow-sm'
+                                                : 'border-rule2 text-muted hover:border-rule hover:text-ink hover:bg-paper2'}`}
+                                    >
+                                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                                        <span className="truncate">{item.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* Dimensions & On-Screen Position Editing Controls */}
+                            {frameType && (
+                                <div className="p-3 bg-paper2 rounded-input border border-rule space-y-3 animate-fade">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[11px] font-medium text-ink flex items-center gap-1.5">
+                                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: FRAME_OPTIONS.find(f => f.id === frameType)?.color }} />
+                                            {FRAME_OPTIONS.find(f => f.id === frameType)?.label} Frame
+                                        </span>
+                                        <span className="text-[10px] text-muted">drag directly on preview</span>
+                                    </div>
+
+                                    {/* Position Presets */}
+                                    <div className="grid grid-cols-3 gap-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => { setFrameY(0.95); setFrameX(0.0); }}
+                                            className={`py-1 px-1 rounded text-[11px] lowercase border transition-colors ${frameY >= 0.9 ? 'border-brass bg-brass/10 text-ink font-medium' : 'border-rule text-muted hover:text-ink'}`}
+                                        >
+                                            bottom
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setFrameY(0.5); setFrameX(0.0); }}
+                                            className={`py-1 px-1 rounded text-[11px] lowercase border transition-colors ${frameY > 0.3 && frameY < 0.7 ? 'border-brass bg-brass/10 text-ink font-medium' : 'border-rule text-muted hover:text-ink'}`}
+                                        >
+                                            center
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setFrameY(0.05); setFrameX(0.0); }}
+                                            className={`py-1 px-1 rounded text-[11px] lowercase border transition-colors ${frameY <= 0.15 ? 'border-brass bg-brass/10 text-ink font-medium' : 'border-rule text-muted hover:text-ink'}`}
+                                        >
+                                            top
+                                        </button>
+                                    </div>
+
+                                    {/* Width / Scale Slider */}
+                                    <div>
+                                        <div className="flex items-center justify-between text-[11px] text-muted mb-1">
+                                            <span>Scale / Width</span>
+                                            <span className="font-mono text-ink">{Math.round(frameScale * 100)}%</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="50"
+                                            max="140"
+                                            step="5"
+                                            value={Math.round(frameScale * 100)}
+                                            onChange={(e) => setFrameScale(Number(e.target.value) / 100)}
+                                            className="w-full accent-brass cursor-pointer h-1.5 bg-paper3 rounded-lg"
+                                        />
+                                    </div>
+
+                                    {/* Vertical Position (Y) Slider */}
+                                    <div>
+                                        <div className="flex items-center justify-between text-[11px] text-muted mb-1">
+                                            <span>Vertical Position (Y)</span>
+                                            <span className="font-mono text-ink">{Math.round(frameY * 100)}%</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="5"
+                                            max="95"
+                                            step="1"
+                                            value={Math.round(frameY * 100)}
+                                            onChange={(e) => setFrameY(Number(e.target.value) / 100)}
+                                            className="w-full accent-brass cursor-pointer h-1.5 bg-paper3 rounded-lg"
+                                        />
+                                    </div>
+
+                                    {/* Horizontal Position (X) Slider */}
+                                    <div>
+                                        <div className="flex items-center justify-between text-[11px] text-muted mb-1">
+                                            <span>Horizontal Shift (X)</span>
+                                            <span className="font-mono text-ink">{Math.round(frameX * 100)}%</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="-30"
+                                            max="30"
+                                            step="1"
+                                            value={Math.round(frameX * 100)}
+                                            onChange={(e) => setFrameX(Number(e.target.value) / 100)}
+                                            className="w-full accent-brass cursor-pointer h-1.5 bg-paper3 rounded-lg"
+                                        />
+                                    </div>
+
+                                    {/* Quick Burn / Apply to video preview */}
+                                    <div className="pt-2 border-t border-rule flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={handleApplyFrameNow}
+                                            disabled={framingApplyLoading}
+                                            className="flex-1 btn-primary py-1.5 px-2 text-xs flex items-center justify-center gap-1.5 rounded-input"
+                                        >
+                                            {framingApplyLoading ? <Loader2 size={13} className="animate-spin" /> : <Frame size={13} />}
+                                            {framingApplyLoading ? 'applying…' : 'apply frame to video'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setFrameScale(1.0); setFrameX(0.0); setFrameY(0.95); }}
+                                            className="btn-quiet py-1.5 px-2 text-[11px] rounded-input"
+                                            title="Reset to default 100% bottom"
+                                        >
+                                            reset
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                         </div>
 
                         {/* keyboard legend — moved off the clip track, which no longer

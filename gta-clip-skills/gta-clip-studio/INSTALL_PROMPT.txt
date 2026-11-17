@@ -1,0 +1,9 @@
+Install the "GTA Clipping Studio" skill for me.
+
+The unzipped folder is here: C:\proj\openshorts-main\gta-clip-skills\gta-clip-studio   <- change this to your path
+
+1. Copy that whole folder to my Claude skills folder: ~/.claude/skills/gta-clip-studio
+   (Windows: C:\Users\<me>\.claude\skills\gta-clip-studio). If it already exists, keep my config.json and .env.
+2. Read ~/.claude/skills/gta-clip-studio/SKILL.md and follow "0. First time: install". Tell me what will be
+   installed, then install everything once I say OK.
+3. When the check says READY, tell me how to use it in two lines.

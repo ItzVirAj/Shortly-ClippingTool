@@ -701,6 +701,25 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
         if not content_ranges and screencast_layout.ENABLED:
             content_ranges = screen_ranges(input_video, scenes, fps, strategies)
 
+    streamer_mode = None
+    if os.environ.get("STREAMER_TOP_LAYOUT", "0") == "1":
+        streamer_mode = "streamer_top"
+    elif os.environ.get("STREAMER_BOTTOM_LAYOUT", "0") == "1":
+        streamer_mode = "streamer_bottom"
+
+    streamer_box = None
+    if streamer_mode and not passthrough:
+        try:
+            streamer_box = camera_inset.detect_streamer_webcam(input_video)
+        except Exception as e:
+            print(f"   ⚠️ Streamer webcam detection failed ({e}) — using default framing.")
+        if streamer_box:
+            print(f"   🎮 2-Way Streamer layout ({streamer_mode}): webcam at {streamer_box}")
+        else:
+            print(f"   🎮 2-Way Streamer layout ({streamer_mode}): active")
+        for i in range(len(strategies)):
+            strategies[i] = 'STREAMER_SPLIT'
+
     # SPLIT is an upgrade applied on top of the TRACK/GENERAL verdict, keyed by
     # the scene's START FRAME rather than its index: scene_frame_ranges() drops
     # empty ranges, so indices there don't line up with `scenes`. A surviving
@@ -868,7 +887,14 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
             dur = (end_f - start_f) / fps
             boxes = None
 
-            if strategy == 'INSET':
+            if strategy == 'STREAMER_SPLIT':
+                graph = camera_inset.streamer_split_filtergraph(
+                    orig_w, orig_h, out_w, out_h,
+                    box=streamer_box,
+                    orientation=streamer_mode or "streamer_top",
+                    divider=True,
+                )
+            elif strategy == 'INSET':
                 graph = camera_inset.inset_filtergraph(
                     orig_w, orig_h, out_w, out_h, insets.get(start_f, inset))
             elif strategy == 'SCREENCAST':

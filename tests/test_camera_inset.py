@@ -142,3 +142,17 @@ class TestInsetFiltergraph:
         cam = graph.split("[ca]")[-1].split("[cam]")[0]
         for key in ("w=", "h=", "x=", "y="):
             assert int(cam.split(key)[1].split(":")[0].split(",")[0]) % 2 == 0
+
+    def test_streamer_top_dual_split(self):
+        from camera_inset import streamer_split_filtergraph
+        graph = streamer_split_filtergraph(1920, 1080, 1080, 1920, box=(1400, 50, 450, 250), orientation="streamer_top")
+        assert "vstack=inputs=2" in graph
+        assert "drawbox=x=0:y=959:w=1080:h=3" in graph
+        assert "[ta]" in graph and "[ba]" in graph
+        assert graph.endswith("[v]")
+
+    def test_streamer_bottom_dual_split(self):
+        from camera_inset import streamer_split_filtergraph
+        graph = streamer_split_filtergraph(1920, 1080, 1080, 1920, box=(1400, 50, 450, 250), orientation="streamer_bottom")
+        assert "vstack=inputs=2" in graph
+        assert "drawbox=x=0:y=959:w=1080:h=3" in graph

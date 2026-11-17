@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Rocket, Youtube, Twitch, Loader2, RefreshCw, Play, CheckCircle2, AlertTriangle,
-  Clock, Scissors, Send, ExternalLink, FolderOpen, Lock,
+  Clock, Scissors, Send, ExternalLink, FolderOpen,
 } from 'lucide-react';
 import { apiJson, openQuotaWall } from '../lib/api';
 import { track } from '../lib/analytics';
@@ -229,7 +229,7 @@ export default function AutopilotTab({ onOpenProject, onUpgrade, justConnected }
   const tw = data?.twitch;
   const twitchAvailable = !!data?.twitch_available;
   const accounts = data?.accounts || {};
-  const eligible = !!data?.eligible;
+  const eligible = true;
   const limits = data?.limits || { max_minutes_choices: [10, 20, 30, 45, 60, 90], max_clips_to_publish: 5, platforms: ['tiktok', 'instagram', 'youtube'] };
   const runs = data?.runs || [];
   const errorText = s.enabled && s.last_error ? ERROR_TEXT[s.last_error] : null;
@@ -249,22 +249,6 @@ export default function AutopilotTab({ onOpenProject, onUpgrade, justConnected }
         <div className="mb-6 rounded-card border border-brass/40 bg-brass/5 px-4 py-3 text-sm text-ink2">{notice}</div>
       )}
 
-      {/* Plan gate: Autopilot spends minutes on its own, so it is a paid feature. */}
-      {!eligible && (
-        <div className="card p-6 mb-6">
-          <h3 className="font-display lowercase text-lg text-ink mb-1 flex items-center gap-2">
-            <Lock size={16} className="text-brass" /> included in paid plans
-          </h3>
-          <p className="text-muted text-sm mb-4">
-            Autopilot runs on your plan&apos;s minutes, so it comes with Starter, Creator and Pro.
-            Every new upload turns into shorts without you opening Shortly.
-          </p>
-          <button onClick={() => { track('AutopilotUpgradeClick'); onUpgrade?.(); }} className="btn-primary">
-            <Rocket size={16} /> choose a plan
-          </button>
-        </div>
-      )}
-
       {/* 1 · channel */}
       <div className="card p-6 mb-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -282,7 +266,7 @@ export default function AutopilotTab({ onOpenProject, onUpgrade, justConnected }
             </div>
           </div>
           {(!yt || yt.reauth_required) && (
-            <button onClick={connect} className="btn-primary" disabled={!eligible}>
+            <button onClick={connect} className="btn-primary">
               <Youtube size={16} /> {yt ? 'reconnect youtube' : 'connect youtube'}
             </button>
           )}
@@ -310,7 +294,7 @@ export default function AutopilotTab({ onOpenProject, onUpgrade, justConnected }
               </div>
             </div>
             {(!tw || tw.reauth_required) && (
-              <button onClick={connect} className="btn-ghost px-4 py-2 text-sm" disabled={!eligible}>
+              <button onClick={connect} className="btn-ghost px-4 py-2 text-sm">
                 <Twitch size={16} /> {tw ? 'reconnect twitch' : 'connect twitch'}
               </button>
             )}
@@ -338,7 +322,7 @@ export default function AutopilotTab({ onOpenProject, onUpgrade, justConnected }
           <Switch
             label="autopilot"
             checked={!!s.enabled}
-            disabled={saving || !eligible || !(yt || tw)}
+            disabled={saving || !(yt || tw)}
             onChange={toggleEnabled}
           />
         </div>
@@ -353,7 +337,7 @@ export default function AutopilotTab({ onOpenProject, onUpgrade, justConnected }
             <select
               className="input-field"
               value={s.max_minutes || 30}
-              disabled={saving || !eligible}
+              disabled={saving}
               onChange={(e) => save({ max_minutes: Number(e.target.value) })}
             >
               {limits.max_minutes_choices.map((m) => <option key={m} value={m}>first {m} min</option>)}
@@ -376,7 +360,7 @@ export default function AutopilotTab({ onOpenProject, onUpgrade, justConnected }
           <Switch
             label="autopublish"
             checked={!!s.autopublish}
-            disabled={saving || !eligible}
+            disabled={saving}
             onChange={(on) => { track('AutopilotAutopublish', { props: { on: String(on) } }); save({ autopublish: on }); }}
           />
         </div>
@@ -469,7 +453,7 @@ export default function AutopilotTab({ onOpenProject, onUpgrade, justConnected }
               const run = v.run;
               // Skipped runs can be retried too: private videos used to be
               // misread as Shorts, and a real Short just skips again.
-              const canRun = eligible && !v.is_live && (!run || run.status === 'failed' || run.status === 'skipped');
+              const canRun = !v.is_live && (!run || run.status === 'failed' || run.status === 'skipped');
               return (
                 <div key={v.id} className="flex items-center gap-3 py-3">
                   {v.thumbnail_url ? (

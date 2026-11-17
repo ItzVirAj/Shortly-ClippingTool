@@ -14,6 +14,7 @@ const ENTRANCE_OPTIONS = [
 // Must mirror hooks.py HOOK_STYLES.
 const HOOK_STYLES = [
     { value: 'pill', label: 'Pills', box: 'rgba(255,255,255,0.98)', text: '#000', sans: true },
+    { value: 'cyan_glow', label: 'Neon Cyan', box: 'rgba(12,18,28,0.92)', text: '#fff', border: '#00f2fe', sans: true },
     { value: 'classic', label: 'Classic', box: 'rgba(255,255,255,0.94)', text: '#000' },
     { value: 'dark', label: 'Dark', box: 'rgba(18,18,20,0.92)', text: '#fff' },
     { value: 'yellow', label: 'Yellow', box: 'rgba(255,214,0,0.96)', text: '#000' },

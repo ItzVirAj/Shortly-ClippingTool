@@ -45,6 +45,7 @@ interface HookLook {
 
 const HOOK_LOOKS: Record<string, HookLook> = {
   pill: { box: "rgba(255, 255, 255, 0.98)", text: "#000000", outlinePx: 0, shadow: false, pills: true },
+  cyan_glow: { box: "rgba(12, 18, 28, 0.92)", text: "#FFFFFF", outlinePx: 0, shadow: true, pills: true },
   classic: { box: "rgba(255, 255, 255, 0.94)", text: "#000000", outlinePx: 0, shadow: true },
   dark: { box: "rgba(18, 18, 20, 0.92)", text: "#FFFFFF", outlinePx: 0, shadow: true },
   yellow: { box: "rgba(255, 214, 0, 0.96)", text: "#000000", outlinePx: 0, shadow: true },

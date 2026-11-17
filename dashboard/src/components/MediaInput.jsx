@@ -501,6 +501,8 @@ export default function MediaInput({
                                         className="w-full h-9 px-3 text-xs rounded-xl border border-white/[0.1] bg-[#161720] text-white focus:border-purple-400 focus:outline-none cursor-pointer"
                                     >
                                         <option value="auto">Auto (AI detects speaker framing)</option>
+                                        <option value="streamer_top">Streamer Top / Stream Bottom (Gaming Shorts)</option>
+                                        <option value="streamer_bottom">Stream Top / Streamer Bottom (Reaction / Tutorial)</option>
                                         <option value="split">Two speakers stacked (Split view)</option>
                                         <option value="screencast">Screen over presenter (Screencast)</option>
                                         <option value="none">Single centered crop only</option>
@@ -529,6 +531,7 @@ export default function MediaInput({
                                             className="h-7 px-2.5 text-[11px] rounded-lg border border-white/[0.1] bg-[#161720] text-white focus:outline-none cursor-pointer"
                                         >
                                             <option value="pill">Pills</option>
+                                            <option value="cyan_glow">Neon Cyan (Gamer)</option>
                                             <option value="classic">Classic</option>
                                             <option value="dark">Dark</option>
                                             <option value="yellow">Yellow</option>

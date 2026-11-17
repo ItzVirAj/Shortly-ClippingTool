@@ -15,6 +15,7 @@ import {
   Globe,
   Lock,
   X,
+  Radio,
 } from 'lucide-react';
 
 export default function Sidebar({
@@ -87,6 +88,13 @@ export default function Sidebar({
       label: 'Dashboard',
       icon: LayoutDashboard,
       badge: null,
+    },
+    {
+      type: 'single',
+      id: 'liveclipper',
+      label: 'Live Clipper',
+      icon: Radio,
+      badge: { text: 'LIVE', color: 'orange' },
     },
     {
       type: 'group',

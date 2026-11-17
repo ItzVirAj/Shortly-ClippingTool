@@ -83,21 +83,24 @@ def nearest_corner(box, frame_w, frame_h):
             "top" if cy < frame_h / 2 else "bottom")
 
 
-def is_cornered(box, frame_w, frame_h, margin=CORNER_MARGIN):
+def is_cornered(box, frame_w, frame_h, margin=CORNER_MARGIN, relaxed=False):
     """True when the subject looks like a webcam inset rather than the shot.
 
     Small and off-centre, not "touches two edges": see MAX_SUBJECT_HEIGHT.
-
-    This is a sanity filter, not the decision. Whether the video is a screen
-    recording with a camera in it at all is answered upstream by layout_picker;
-    a game character standing in a corner would pass this test, and is kept out
-    by the fact that nobody asked for this layout on that video.
+    relaxed=True enables streamer-mode detection (allowing centered or larger facecams).
     """
     x, y, w, h = box
-    if h > frame_h * MAX_SUBJECT_HEIGHT:
+    max_h = frame_h * (0.60 if relaxed else MAX_SUBJECT_HEIGHT)
+    if h > max_h:
         return False
 
     cx = (x + w / 2.0) / frame_w
+    if relaxed:
+        off_centre = abs(cx - 0.5) >= 0.04
+        near_edge = (x <= frame_w * 0.40 or (x + w) >= frame_w * 0.60
+                     or y <= frame_h * 0.40 or (y + h) >= frame_h * 0.60)
+        return off_centre or near_edge
+
     off_centre = abs(cx - 0.5) >= MIN_OFFSET
 
     near_edge = (x <= frame_w * margin or (x + w) >= frame_w * (1 - margin)
@@ -242,33 +245,36 @@ def detect(video_path, samples=10):
     return stable_box(boxes, frame_w, frame_h)
 
 
-def stable_box(boxes, frame_w, frame_h, min_agree=3):
+def stable_box(boxes, frame_w, frame_h, min_agree=3, relaxed=False):
     """Median of the inset boxes that agree with each other, or None."""
     import numpy as np
+
+    if not boxes:
+        return None
 
     arr = np.array(boxes, dtype=float)
 
     # Stability gate. Without it, a presenter standing in front of a screen and
     # an ordinary talking head both come back as "insets" and the layout puts a
     # zoom of someone's face under a copy of the same shot.
-    #
-    # Measured against the plain min-to-max range first, which was far too
-    # brittle: one sample landing on a face elsewhere in the frame killed three
-    # genuine insets. So cluster around the median instead and require most
-    # detections to agree, which tolerates the odd stray without tolerating a
-    # subject that actually moves.
     centres_x = arr[:, 0] + arr[:, 2] / 2.0
     centres_y = arr[:, 1] + arr[:, 3] / 2.0
     mid_x, mid_y = np.median(centres_x), np.median(centres_y)
-    tolerance = frame_w * MAX_CENTRE_SPREAD
+    tolerance = frame_w * (0.18 if relaxed else MAX_CENTRE_SPREAD)
     close = ((np.abs(centres_x - mid_x) <= tolerance)
              & (np.abs(centres_y - mid_y) <= tolerance))
-    if close.sum() < max(min_agree, 0.6 * len(boxes)):
-        return None
+    threshold = 2 if relaxed else max(min_agree, 0.6 * len(boxes))
+    if close.sum() < threshold:
+        if not relaxed:
+            return None
+        arr_to_use = arr
+    else:
+        arr_to_use = arr[close]
 
-    arr = arr[close]
-    median = tuple(int(v) for v in np.median(arr, axis=0))
-    if not usable(median, frame_h):
+    median = tuple(int(v) for v in np.median(arr_to_use, axis=0))
+    min_h = 0.06 if relaxed else MIN_INSET_HEIGHT
+    max_h = 0.65 if relaxed else MAX_INSET_HEIGHT
+    if not usable(median, frame_h, min_ratio=min_h, max_ratio=max_h):
         return None
     return median
 
@@ -452,4 +458,150 @@ def inset_filtergraph(orig_w, orig_h, out_w, out_h, box, camera_ratio=None):
         f"[bg][screen]overlay=x=0:y={filler_h // 2}[withscreen];"
         f"[withscreen][cam]overlay=x=0:y={filler_h // 2 + screen_h},"
         f"setsar=1[v]"
+    )
+
+
+def detect_streamer_webcam(video_path, samples=12):
+    """Detect streamer facecam box with relaxed thresholds and safe fallback.
+
+    Returns (x, y, w, h) in original video coordinates.
+    Always returns a usable bounding box (defaults to upper-right quadrant if detection is subtle).
+    """
+    import cv2
+    import numpy as np
+    import main as m
+    import screencast_layout
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return None
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    if total <= 0 or not frame_w or not frame_h:
+        cap.release()
+        return None
+
+    boxes = []
+    try:
+        sample_indices = np.linspace(0, max(0, total - 1), samples, dtype=int)
+        for f_idx in sample_indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(f_idx))
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                continue
+
+            # 1. Full-res face detection
+            faces = screencast_layout.detect_faces_full_res(frame)
+            if not faces:
+                # 2. Downscaled face candidates
+                try:
+                    candidates = m.detect_face_candidates(frame)
+                    if candidates:
+                        faces = candidates
+                except Exception:
+                    pass
+
+            if faces:
+                best = max(faces, key=lambda c: c.get('score', 0) if isinstance(c, dict) else 1)
+                box = best.get('box') if isinstance(best, dict) else best
+            else:
+                # 3. Person detection fallback
+                try:
+                    box = m.detect_person_yolo(frame)
+                except Exception:
+                    box = None
+
+            if not box:
+                continue
+
+            if is_cornered(box, frame_w, frame_h, relaxed=True):
+                boxes.append(inset_box(box, frame_w, frame_h, face=bool(faces)))
+    finally:
+        cap.release()
+
+    if boxes:
+        med = stable_box(boxes, frame_w, frame_h, relaxed=True)
+        if med:
+            return med
+
+    # Safe fallback default: top-right corner ~35% webcam
+    default_w = int(round(frame_w * 0.35))
+    default_h = int(round(default_w / INSET_ASPECT))
+    return (frame_w - default_w, 0, default_w, default_h)
+
+
+def streamer_split_filtergraph(orig_w, orig_h, out_w, out_h, box=None, orientation="streamer_top", divider=True):
+    """Dual-split 9:16 layout (e.g. 1080x1920):
+    - Top half: 1080x960
+    - Bottom half: 1080x960
+    - orientation="streamer_top": Streamer on Top, Gameplay on Bottom (Gaming Shorts style).
+    - orientation="streamer_bottom": Gameplay on Top, Streamer on Bottom (Reaction/Tutorial style).
+    - divider=True: renders a crisp 3px divider seam line at the border (y=959).
+    """
+    half_h = out_h // 2
+    half_h -= half_h % 2
+    aspect = out_w / float(half_h)  # 1080 / 960 = 1.125
+
+    # 1. Gameplay crop (center 1.125 aspect ratio crop of source):
+    game_h = orig_h
+    game_w = int(round(game_h * aspect))
+    if game_w > orig_w:
+        game_w = orig_w
+        game_h = int(round(game_w / aspect))
+    game_w -= game_w % 2
+    game_h -= game_h % 2
+    game_x = max(0, min(orig_w - game_w, int(round((orig_w - game_w) / 2.0))))
+    game_x -= game_x % 2
+    game_y = max(0, min(orig_h - game_h, int(round((orig_h - game_h) / 2.0))))
+    game_y -= game_y % 2
+
+    # 2. Streamer webcam crop:
+    if box:
+        bx, by, bw, bh = box
+    else:
+        bw = int(round(orig_w * 0.35))
+        bh = int(round(bw / INSET_ASPECT))
+        bx = orig_w - bw
+        by = 0
+
+    bcx = bx + bw / 2.0
+    bcy = by + bh / 2.0
+
+    if bw / float(max(1, bh)) >= aspect:
+        cam_crop_h = bh
+        cam_crop_w = int(round(cam_crop_h * aspect))
+        cam_crop_x = int(round(bcx - cam_crop_w / 2.0))
+        cam_crop_y = by
+    else:
+        cam_crop_w = bw
+        cam_crop_h = int(round(cam_crop_w / aspect))
+        cam_crop_x = bx
+        cam_crop_y = int(round(bcy - cam_crop_h * 0.42))
+
+    cam_crop_x = max(0, min(cam_crop_x, orig_w - cam_crop_w))
+    cam_crop_y = max(0, min(cam_crop_y, orig_h - cam_crop_h))
+    cam_crop_w -= cam_crop_w % 2
+    cam_crop_h -= cam_crop_h % 2
+    cam_crop_x -= cam_crop_x % 2
+    cam_crop_y -= cam_crop_y % 2
+
+    game_layer = f"crop=w={game_w}:h={game_h}:x={game_x}:y={game_y},scale={out_w}:{half_h}"
+    cam_layer = f"crop=w={cam_crop_w}:h={cam_crop_h}:x={cam_crop_x}:y={cam_crop_y},scale={out_w}:{half_h}"
+
+    if orientation == "streamer_bottom":
+        top_filter = game_layer
+        bot_filter = cam_layer
+    else:
+        top_filter = cam_layer
+        bot_filter = game_layer
+
+    seam_y = half_h - 1
+    divider_filter = f",drawbox=x=0:y={seam_y}:w={out_w}:h=3:color=black@0.95:t=fill" if divider else ""
+
+    return (
+        f"[0:v]split=2[ta][ba];"
+        f"[ta]{top_filter}[top];"
+        f"[ba]{bot_filter}[bot];"
+        f"[top][bot]vstack=inputs=2{divider_filter},setsar=1[v]"
     )

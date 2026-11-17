@@ -1,0 +1,166 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>@font-face{font-family:Anton;src:url(../../assets/fonts/Anton-Regular.ttf);font-display:block}
+@font-face{font-family:Inter;src:url(../../assets/fonts/Inter.ttf);font-weight:100 900;font-display:block}</style>
+<style>html,body{margin:0;background:transparent;overflow:hidden}canvas{display:block}</style>
+</head><body>
+<canvas id="c" width="1080" height="1920"></canvas>
+<script>
+// Evidence Mode Short overlay (transparent). Every frame = draw(t). No timers, no state.
+const TL = window.TL;
+const W = 1080, H = 1920;
+const C = { coral:'#FF5A4E', teal:'#00A9A5', yellow:'#FFC83D', sand:'#FFF6E8', ink:'#14161A',
+  green:'#2BB673', amber:'#FFB020', blue:'#2F80ED', red:'#E5383B' };
+// voice-over speakers: {name: {label, color}} from config.json (ElevenLabs mode)
+const VOICES = TL.voices || {};
+const STAMP = { CONFIRMED:C.green, RUMOR:C.amber, THEORY:C.blue, BUSTED:C.red };
+// GTA-era neon (VI pink/purple, Vice City pink/cyan, GTA V green, San Andreas gold)
+const NEON = ['#FF3EA5', '#9B5CFF', '#22D3EE', '#3DDC84', '#FFC83D', '#FF3EA5'];
+const FD = 'Anton', FU = 'Inter';
+const cv = document.getElementById('c'), g = cv.getContext('2d');
+
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+const eOut = x => 1 - Math.pow(1 - x, 3);
+function spring(x, z = 0.55, w = 18) { if (x <= 0) return 0; const wd = w * Math.sqrt(1 - z * z);
+  return 1 - Math.exp(-z * w * x) * (Math.cos(wd * x) + (z * w / wd) * Math.sin(wd * x)); }
+// pop: 125% -> 100% in ~6 frames with a little overshoot (house rule: plates pop in whole)
+const pop = (t, at) => t < at ? 0 : 1.25 - 0.25 * spring(t - at);
+
+function rrect(x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+
+function neon(x, y, w, h, r, t, lw = 7) { // rotating neon border inside the box edge, 4 s a lap
+  const grad = g.createConicGradient((t / 4) * Math.PI * 2, x + w / 2, y + h / 2);
+  NEON.forEach((c, i) => grad.addColorStop(i / (NEON.length - 1), c));
+  g.save(); g.lineWidth = lw; g.strokeStyle = grad; g.shadowColor = 'rgba(255,62,165,.55)'; g.shadowBlur = 18;
+  rrect(x + lw / 2, y + lw / 2, w - lw, h - lw, Math.max(2, r - lw / 2)); g.stroke(); g.restore();
+}
+
+// a text plate; (cx|x, y) = anchor; returns its box
+function plate(text, o) {
+  const padX = o.padX ?? 30, padY = o.padY ?? 18, maxW = o.maxW ?? (o.cx !== undefined ? 1000 : 1080 - 2 * (o.x ?? 60));
+  let size = o.size, font;
+  for (;;) { // auto-fit: shrink the text until the plate fits the frame
+    font = `${o.weight || ''} ${size}px ${o.font || FD}`.trim(); g.font = font;
+    if (g.measureText(text).width + padX * 2 <= maxW || size <= 24) break;
+    size -= 2;
+  }
+  o = { ...o, size };
+  const tw = g.measureText(text).width;
+  const w = tw + padX * 2, h = o.size * (o.lh ?? 1.08) + padY * 2;
+  const x = o.cx !== undefined ? o.cx - w / 2 : o.x, y = o.y;
+  g.save();
+  const s = o.scale ?? 1, ox = x + w / 2, oy = y + h / 2;
+  g.translate(ox, oy); g.rotate((o.rot || 0) * Math.PI / 180); g.scale(s, s); g.translate(-ox, -oy);
+  g.globalAlpha = o.alpha ?? 1;
+  g.shadowColor = 'rgba(0,0,0,.35)'; g.shadowBlur = 24; g.shadowOffsetY = 8;
+  g.fillStyle = o.bg; rrect(x, y, w, h, o.r ?? 10); g.fill(); g.shadowColor = 'transparent';
+  if (o.neon) neon(x, y, w, h, o.r ?? 10, o.t);
+  g.fillStyle = o.fg; g.textBaseline = 'middle'; g.textAlign = 'left'; g.font = font;
+  g.fillText(text, x + padX, y + h / 2 + (o.dy ?? 2));
+  g.restore();
+  return { x, y, w, h };
+}
+
+function hook(t) {
+  const H0 = TL.hook; if (!H0 || t > H0.until + 0.3) return;
+  const out = prog(t, H0.until - 0.05, H0.until + 0.3), a = 1 - out;
+  const s1 = t < 0.35 ? 1.04 - 0.04 * eOut(t / 0.35) : 1;     // frame 0 already readable, slight settle
+  const s2 = t < 0.18 ? 0.96 : pop(t, 0.18) || 1;
+  const y = H0.y ?? 600;
+  plate(H0.l1, { cx: 540, y, size: 116, fg: '#fff', bg: C.ink, scale: s1 * (1 - out * .15), alpha: a, rot: -2, neon: true, t });
+  if (H0.l2) plate(H0.l2, { cx: 540, y: y + 168, size: 98, fg: C.ink, bg: C.yellow, scale: s2 * (1 - out * .15), alpha: a, rot: -2 });
+}
+
+function counter(t) {
+  const K = TL.counter; if (!K || t < K.from) return;
+  const s = pop(t, K.from);
+  g.save(); g.translate(48, 236); g.scale(s, s);
+  g.font = `800 34px ${FU}`; const lab = K.label + ' ', w1 = g.measureText(lab).width;
+  g.font = `52px ${FD}`; const wn = g.measureText(K.n).width;
+  g.font = `800 30px ${FU}`; const wo = g.measureText(' /' + K.of).width;
+  const w = 26 + w1 + wn + wo + 26, h = 74;
+  g.shadowColor = 'rgba(0,0,0,.35)'; g.shadowBlur = 18; g.fillStyle = C.ink; rrect(0, 0, w, h, 12); g.fill();
+  g.shadowColor = 'transparent'; neon(0, 0, w, h, 12, t, 5);
+  g.textBaseline = 'middle'; let x = 26;
+  g.font = `800 34px ${FU}`; g.fillStyle = '#fff'; g.fillText(lab, x, h / 2 + 2); x += w1;
+  g.font = `52px ${FD}`; g.fillStyle = C.yellow; g.fillText(K.n, x, h / 2 + 3); x += wn;
+  g.font = `800 30px ${FU}`; g.fillStyle = 'rgba(255,255,255,.75)'; g.fillText(' /' + K.of, x, h / 2 + 2);
+  g.restore();
+}
+
+function source(t) {
+  if (!TL.source || t < 0.6) return;
+  const a = prog(t, 0.6, 0.85);
+  plate(TL.source, { x: 48, y: 1478, size: 26, font: FU, weight: 800, fg: C.ink, bg: C.sand,
+    padX: 16, padY: 9, r: 8, alpha: a, dy: 1, lh: 1.1 });
+}
+
+function claims(t) {
+  for (const c of TL.claims || []) {
+    if (t < c.at || t > c.at + c.dur + 0.25) continue;
+    const out = prog(t, c.at + c.dur, c.at + c.dur + 0.25), a = 1 - out, s = pop(t, c.at) * (1 - out * .1);
+    const y = c.y ?? 330;
+    const k = plate(c.kicker, { x: 60, y, size: 62, fg: '#fff', bg: C.ink, scale: s, alpha: a, padY: 12 });
+    const hd = plate(c.head, { x: 60, y: y + k.h - 4, size: 112, fg: C.yellow, bg: C.ink, scale: s, alpha: a, padY: 12, neon: true, t });
+    if (c.stamp && t >= c.at + 0.45) stamp(t, c.at + 0.45, c.stamp, Math.max(k.x + k.w, hd.x + hd.w) - 30, y - 30, a);
+  }
+}
+
+function stamp(t, at, word, x, y, alpha) {
+  const col = STAMP[word] || C.red, k = t - at, s = k < 0.2 ? 1.3 - 0.3 * eOut(k / 0.2) : 1;
+  g.save(); g.globalAlpha = alpha; g.translate(x, y); g.rotate(-4 * Math.PI / 180); g.scale(s, s);
+  g.font = `78px ${FD}`; const tw = g.measureText(word).width, w = tw + 48, h = 104;
+  g.restore(); g.save(); g.globalAlpha = alpha;   // keep the whole stamp inside the frame
+  x = Math.min(x, 1080 - w / 2 - 24); y = Math.max(y, 150);
+  g.translate(x, y); g.rotate(-4 * Math.PI / 180); g.scale(s, s); g.font = `78px ${FD}`;
+  g.translate(-w / 2, -h / 2);
+  g.fillStyle = 'rgba(255,246,232,.92)'; rrect(0, 0, w, h, 10); g.fill();
+  g.lineWidth = 7; g.strokeStyle = col; rrect(6, 6, w - 12, h - 12, 8); g.stroke();
+  g.fillStyle = col; g.textBaseline = 'middle'; g.fillText(word, 24, h / 2 + 3);
+  // rubber-stamp grain (fixed pattern, no randomness per frame)
+  g.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 70; i++) { const px = (i * 97) % w, py = (i * 53) % h; g.fillRect(px, py, 3 + (i % 3), 2); }
+  g.restore();
+}
+
+function captions(t) {
+  const cap = (TL.caps || []).find(c => t >= c.s && t < c.e); if (!cap) return;
+  const words = cap.words, s = t < cap.s + 0.12 ? 1.15 - 0.15 * eOut((t - cap.s) / 0.12) : 1;
+  g.save(); g.font = `900 80px ${FU}`;
+  const sp = 22, ws = words.map(w => g.measureText(w.w).width), total = ws.reduce((a, b) => a + b, 0) + sp * (words.length - 1);
+  const fit = Math.min(1, 960 / total); // long chunks shrink to stay inside the frame
+  const y = 1352; g.translate(540, y); g.scale(s * fit, s * fit);
+  let x = -total / 2; g.textBaseline = 'middle'; g.lineJoin = 'round';
+  words.forEach((w, i) => {
+    const cur = t >= w.s && t < (words[i + 1] ? words[i + 1].s : cap.e);
+    g.lineWidth = 14; g.strokeStyle = C.ink; g.strokeText(w.w, x, 0);
+    g.fillStyle = cur ? C.yellow : '#fff'; g.fillText(w.w, x, 0); x += ws[i] + sp;
+  });
+  g.restore();
+  if (cap.who && cap.who !== 'orig') { // speaker chip for the voice-over
+    const V = VOICES[cap.who] || {};
+    plate((V.label || cap.who).toUpperCase(), { cx: 540, y: 1238, size: 30, font: FU, weight: 900, fg: C.ink, bg: V.color || C.yellow,
+      padX: 18, padY: 8, r: 18, dy: 1 });
+  }
+}
+
+function cta(t) {
+  const A = TL.cta; if (!A || t < A.at) return;
+  const cy = A.y ?? 640;
+  plate(A.l1, { cx: 540, y: cy, size: 96, fg: '#fff', bg: C.ink, scale: pop(t, A.at), rot: -2, neon: true, t });
+  plate(A.l2, { cx: 540, y: cy + 150, size: 104, fg: C.ink, bg: C.yellow, scale: pop(t, A.at + 0.15), rot: -2 });
+}
+
+function draw(t) {
+  g.clearRect(0, 0, W, H);
+  hook(t); counter(t); source(t); claims(t); cta(t); captions(t);
+}
+window.seek = t => draw(t);
+window.READY = (async () => {
+  await document.fonts.load(`116px ${FD}`); await document.fonts.load(`900 80px ${FU}`); await document.fonts.load(`800 34px ${FU}`);
+  await document.fonts.ready; return document.fonts.check(`116px ${FD}`);
+})();
+</script>
+</body></html>

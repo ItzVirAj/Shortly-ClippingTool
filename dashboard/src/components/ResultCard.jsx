@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Download, Share2, Instagram, Youtube, Video, AlertCircle, Loader2, Copy, Check, Wand2, Type, Calendar, Languages, FileText, Link2, Scissors, Crosshair, TrendingUp } from 'lucide-react';
+import { Download, Share2, Instagram, Youtube, Video, AlertCircle, Loader2, Copy, Check, Wand2, Type, Calendar, Languages, FileText, Link2, Scissors, Crosshair, TrendingUp, Frame } from 'lucide-react';
 import { getApiUrl } from '../config';
 import { apiFetch } from '../lib/api';
 import { track } from '../lib/analytics';
@@ -90,7 +90,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
     // subtitled file (double-subtitle bug).
     const stripBurns = (filename) => {
         let f = filename || '', prev;
-        do { prev = f; f = f.replace(/^subtitled_\d+_/, '').replace(/^hooked_\d+_/, '').replace(/^hook_/, ''); } while (f !== prev);
+        do { prev = f; f = f.replace(/^subtitled_\d+_/, '').replace(/^hooked_\d+_/, '').replace(/^hook_/, '').replace(/^(kick|youtube|twitch|instagram)_\d+_\d+_/, '').replace(/^(kick|youtube|twitch|instagram)_/, ''); } while (f !== prev);
         return f;
     };
     const originalVideoUrl = getApiUrl((clip.video_url || '').replace(/[^/]+$/, stripBurns((clip.video_url || '').split('/').pop())));
@@ -241,6 +241,60 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
     const [showHookModal, setShowHookModal] = useState(false);
     const [showTranslateModal, setShowTranslateModal] = useState(false);
     const [editError, setEditError] = useState(null);
+    const detectFrame = (clipObj) => {
+        if (clipObj?.frame_type) return clipObj.frame_type;
+        const u = clipObj?.video_url || '';
+        if (u.includes('kick_')) return 'kick';
+        if (u.includes('youtube_')) return 'youtube';
+        if (u.includes('twitch_')) return 'twitch';
+        if (u.includes('instagram_')) return 'instagram';
+        return null;
+    };
+    const [activeFrame, setActiveFrame] = useState(() => detectFrame(clip));
+    const [showFramePicker, setShowFramePicker] = useState(false);
+    const [isFraming, setIsFraming] = useState(false);
+
+    const handleSelectFrame = async (frameType) => {
+        setIsFraming(true);
+        setEditError(null);
+        setShowFramePicker(false);
+        const willRemove = !frameType || frameType === 'none' || frameType === activeFrame;
+        try {
+            const res = await apiFetch('/api/clip/frame', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    job_id: jobId,
+                    clip_index: index,
+                    frame_type: willRemove ? 'none' : frameType,
+                    remove: willRemove,
+                }),
+            });
+            if (!res.ok) {
+                let detail = 'Failed to update frame';
+                try { detail = (await res.json()).detail || detail; } catch { /* ignore */ }
+                throw new Error(detail);
+            }
+            const data = await res.json();
+            if (data.new_video_url) {
+                const newUrl = getApiUrl(data.new_video_url);
+                setCurrentVideoUrl(newUrl);
+                setServerVideoFile(data.new_video_url.split('/').pop());
+                const nextFrame = willRemove ? null : frameType;
+                setActiveFrame(nextFrame);
+                clip.frame_type = nextFrame;
+                clip.kick_framed = (nextFrame === 'kick');
+                clip.video_url = data.new_video_url;
+                if (videoRef.current) {
+                    videoRef.current.load();
+                }
+            }
+        } catch (err) {
+            setEditError(err.message || 'Could not update frame');
+        } finally {
+            setIsFraming(false);
+        }
+    };
 
     const [clipDuration, setClipDuration] = useState(() => {
         const secs = clipDurationSeconds(clip);
@@ -978,6 +1032,54 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                             reframing
                         </button>
                     )}
+
+                    <div className="relative">
+                        <button
+                            onClick={() => setShowFramePicker((v) => !v)}
+                            disabled={isFraming}
+                            className={`${QUIET_BTN} w-full ${activeFrame ? 'text-ink font-medium border-rule2 bg-paper2' : ''}`}
+                            title="Add or change brand frame (Kick, YouTube, Twitch, Instagram)"
+                        >
+                            {isFraming ? (
+                                <Loader2 size={16} className="animate-spin text-brass shrink-0" />
+                            ) : (
+                                <Frame size={16} className={activeFrame ? "text-brass shrink-0" : "text-muted group-hover:text-brass transition-colors shrink-0"} />
+                            )}
+                            {isFraming ? 'framing…' : activeFrame ? `${activeFrame} frame` : 'add frame'}
+                        </button>
+
+                        {showFramePicker && (
+                            <div className="absolute bottom-full left-0 mb-2 w-48 bg-paper border border-rule rounded-card shadow-2xl p-2 z-30 space-y-1 animate-fade backdrop-blur-md">
+                                <p className="eyebrow px-2 py-1 text-[10px]">BRAND FRAMES</p>
+                                {[
+                                    { id: 'kick', name: 'Kick.com', color: '#53FC18' },
+                                    { id: 'youtube', name: 'YouTube', color: '#FF0000' },
+                                    { id: 'twitch', name: 'Twitch', color: '#9146FF' },
+                                    { id: 'instagram', name: 'Instagram', color: '#E1306C' },
+                                ].map((item) => (
+                                    <button
+                                        key={item.id}
+                                        onClick={() => handleSelectFrame(item.id)}
+                                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-input text-xs lowercase text-left transition-colors ${activeFrame === item.id ? 'bg-paper3 text-ink font-semibold' : 'text-muted hover:text-ink hover:bg-paper2'}`}
+                                    >
+                                        <span className="flex items-center gap-2">
+                                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                                            {item.name}
+                                        </span>
+                                        {activeFrame === item.id && <Check size={12} className="text-brass" />}
+                                    </button>
+                                ))}
+                                {activeFrame && (
+                                    <button
+                                        onClick={() => handleSelectFrame('none')}
+                                        className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-input text-xs lowercase text-danger hover:bg-danger/10 text-left transition-colors mt-1 border-t border-rule pt-1.5"
+                                    >
+                                        remove frame
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                    </div>
 
                     <button
                         onClick={handleAutoEdit}
