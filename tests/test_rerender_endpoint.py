@@ -345,3 +345,89 @@ class TestMcpTool:
         names = [t["name"] for t in mcp_server.TOOLS]
         assert "recut_clip" in names
         assert "recut_clip" in mcp_server._TOOL_IMPLS
+
+
+@pytest.mark.parametrize('overrides', [
+    {'frame_type': '../unknown'}, {'frame_scale': -1},
+    {'text_overlays': [{'text': 'hello', 'color': 'red:box=1'}]},
+    {'text_overlays': [{'text': 'hello', 'x_pct': 4}]},
+    {'text_overlays': [{'text': 'x'}] * 21},
+])
+def test_invalid_overlay_settings_rejected(job, overrides):
+    response = _request('POST', '/api/clip/rerender', {
+        'job_id': JOB_ID, 'clip_index': 0,
+        'segments': [{'start': 10, 'end': 30}], **overrides,
+    })
+    assert response.status_code == 422
+
+
+def test_text_failure_preserves_metadata(job, fake_recut, monkeypatch):
+    import clip_text_overlays
+    monkeypatch.setattr(clip_text_overlays, 'apply_text_overlays', lambda *args: False)
+    before = job['meta_path'].read_text()
+    response = _request('POST', '/api/clip/rerender', {
+        'job_id': JOB_ID, 'clip_index': 0,
+        'segments': [{'start': 10, 'end': 30}],
+        'text_overlays': [{'text': 'hello'}],
+    })
+    assert response.status_code == 500
+    assert 'Text rendering failed' in response.json()['detail']
+    assert job['meta_path'].read_text() == before
+
+
+def test_text_export_and_clean_preview_persist_separately(job, fake_recut, monkeypatch):
+    import clip_text_overlays
+    from pathlib import Path
+    def render(source, target, overlays):
+        assert overlays[0]['font_id'] == 'anton'
+        Path(target).write_bytes(b'with-text')
+        return True
+    monkeypatch.setattr(clip_text_overlays, 'apply_text_overlays', render)
+    response = _request('POST', '/api/clip/rerender', {
+        'job_id': JOB_ID, 'clip_index': 0,
+        'segments': [{'start': 10, 'end': 30}],
+        'text_overlays': [{'text': 'hello'}],
+    })
+    assert response.status_code == 200
+    result = response.json()
+    assert result['new_video_url'] != result['editor_preview_url']
+    edl = _request('GET', f'/api/clip/{JOB_ID}/0/edl').json()
+    assert edl['editor_preview_url'] == result['editor_preview_url']
+    assert edl['text_overlays'][0]['text'] == 'hello'
+    # Removing all text must return an export without the old overlay.
+    response = _request('POST', '/api/clip/rerender', {
+        'job_id': JOB_ID, 'clip_index': 0,
+        'segments': [{'start': 10, 'end': 30}], 'text_overlays': [],
+    })
+    assert response.status_code == 200
+    assert response.json()['new_video_url'] == response.json()['editor_preview_url']
+
+
+@pytest.mark.parametrize('succeeds', [True, False])
+def test_frame_geometry_and_failure_are_handled(job, fake_recut, monkeypatch, succeeds):
+    import sys
+    from types import SimpleNamespace
+    from pathlib import Path
+    calls = []
+    def frame(source, target, kind, scale, x, y):
+        calls.append((kind, scale, x, y))
+        if succeeds:
+            Path(target).write_bytes(b'frame')
+        return succeeds
+    monkeypatch.setitem(sys.modules, 'main', SimpleNamespace(apply_brand_frame=frame))
+    before = job['meta_path'].read_text()
+    response = _request('POST', '/api/clip/rerender', {
+        'job_id': JOB_ID, 'clip_index': 0,
+        'segments': [{'start': 10, 'end': 30}], 'frame_type': 'youtube',
+        'frame_scale': 0.8, 'frame_x_pct': 0.1, 'frame_y_pct': None,
+    })
+    assert calls == [('youtube', 0.8, 0.1, None)]
+    assert response.status_code == (200 if succeeds else 500)
+    if succeeds:
+        result = response.json()
+        assert result['new_video_url'] != result['editor_preview_url']
+        edl = _request('GET', f'/api/clip/{JOB_ID}/0/edl').json()
+        assert edl['frame_scale'] == 0.8
+        assert edl['frame_y_pct'] is None
+    else:
+        assert job['meta_path'].read_text() == before

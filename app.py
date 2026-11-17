@@ -28,7 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from starlette.background import BackgroundTask
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from s3_uploader import upload_job_artifacts, list_all_clips, upload_actor_to_s3, list_actor_gallery, upload_video_to_gallery, list_video_gallery
 import recut
 import layout_ranges
@@ -6470,6 +6470,7 @@ async def get_clip_edl(job_id: str, clip_index: int, request: Request):
         "canonical_range": canonical_range,
         "duration": total,
         "current_file": current_file,
+        "editor_preview_url": clip.get("editor_preview_url"),
         "kick_framed": bool(clip.get("kick_framed") or "kick_" in (clip.get("video_url") or "")),
         "frame_type": clip.get('frame_type') or ('kick' if clip.get('kick_framed') else None),
         "frame_scale": clip.get('frame_scale', 1.0),
@@ -6499,6 +6500,19 @@ class RerenderSegment(BaseModel):
     end: float
 
 
+class ClipTextOverlay(BaseModel):
+    text: str = Field(default="", max_length=2000)
+    x_pct: float = Field(default=0.5, ge=0, le=1, allow_inf_nan=False)
+    y_pct: float = Field(default=0.1, ge=0, le=1, allow_inf_nan=False)
+    font_size: int = Field(default=72, ge=12, le=240)
+    font_id: str = Field(default="anton", pattern=r"^(anton|montserrat|inter|impact|arial|arialbd|ariblk|calibri|bahnschrift|comic|consola|candara)$")
+    color: str = Field(default="#ffffff", pattern=r"^#[0-9a-fA-F]{6}$")
+    bold: bool = False
+    italic: bool = False
+    bg_color: str = Field(default="#000000", pattern=r"^#[0-9a-fA-F]{6}$")
+    bg_opacity: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
+
+
 class RerenderRequest(BaseModel):
     job_id: str
     clip_index: int
@@ -6509,13 +6523,13 @@ class RerenderRequest(BaseModel):
     # 'auto' resets to the classifier; 'full'/'track' force a layout.
     framing: Optional[str] = None
     kick_frame: Optional[bool] = None
-    frame_type: Optional[str] = None
-    frame_scale: Optional[float] = 1.0
-    frame_x_pct: Optional[float] = 0.0
-    frame_y_pct: Optional[float] = None
+    frame_type: Optional[str] = Field(default=None, pattern=r"^(none|kick|youtube|twitch|instagram)$")
+    frame_scale: Optional[float] = Field(default=None, ge=0.2, le=2, allow_inf_nan=False)
+    frame_x_pct: Optional[float] = Field(default=None, ge=-0.4, le=0.4, allow_inf_nan=False)
+    frame_y_pct: Optional[float] = Field(default=None, ge=0, le=1, allow_inf_nan=False)
     # Text overlays: list of {text, x_pct, y_pct, font_size, font_id, color,
     #                          bold, italic, bg_color, bg_opacity}
-    text_overlays: Optional[List[dict]] = None
+    text_overlays: Optional[List[ClipTextOverlay]] = Field(default=None, max_length=20)
 
 
 # Manual framing -> reframe-engine strategy. 'full' shows the whole source
@@ -6657,7 +6671,7 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
     try:
         loop = asyncio.get_event_loop()
         served_name, _clean_recut_name = await loop.run_in_executor(None, run_recut)
-        served_name = await _deliver(request, req.job_id, served_name)
+        preview_name = served_name
 
         active_frame = req.frame_type if req.frame_type is not None else clip.get('frame_type')
         if not active_frame and (req.kick_frame or clip.get('kick_framed')):
@@ -6666,25 +6680,31 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
             from main import apply_brand_frame
             scale = req.frame_scale if req.frame_scale is not None else clip.get('frame_scale', 1.0)
             x_pct = req.frame_x_pct if req.frame_x_pct is not None else clip.get('frame_x_pct', 0.0)
-            y_pct = req.frame_y_pct if req.frame_y_pct is not None else clip.get('frame_y_pct', None)
+            y_pct = req.frame_y_pct if 'frame_y_pct' in req.model_fields_set else clip.get('frame_y_pct', None)
             framed_name = f"{active_frame}_{served_name}"
             framed_path = os.path.join(output_dir, framed_name)
             recut_path = os.path.join(output_dir, served_name)
             ok_frame = await loop.run_in_executor(None, apply_brand_frame, recut_path, framed_path, active_frame, scale, x_pct, y_pct)
-            if ok_frame and os.path.exists(framed_path):
-                served_name = framed_name
+            if not ok_frame or not os.path.exists(framed_path):
+                raise RuntimeError("Frame rendering failed. Your previous export is unchanged.")
+            served_name = framed_name
 
         # Apply text overlays after the brand frame (so text sits on top)
-        active_text_overlays = req.text_overlays if req.text_overlays is not None else clip.get('text_overlays') or []
+        active_text_overlays = [item.model_dump() for item in req.text_overlays] if req.text_overlays is not None else clip.get('text_overlays') or []
+        active_text_overlays = [item for item in active_text_overlays if item.get("text", "").strip()]
         if active_text_overlays:
-            from main import apply_text_overlays
+            from clip_text_overlays import apply_text_overlays
             txt_name = f"txt_{served_name}"
             txt_path = os.path.join(output_dir, txt_name)
             src_for_txt = os.path.join(output_dir, served_name)
             ok_txt = await loop.run_in_executor(None, apply_text_overlays, src_for_txt, txt_path, active_text_overlays)
-            if ok_txt and os.path.exists(txt_path):
-                served_name = txt_name
+            if not ok_txt or not os.path.exists(txt_path):
+                raise RuntimeError("Text rendering failed. Your previous export is unchanged.")
+            served_name = txt_name
 
+        served_name = await _deliver(request, req.job_id, served_name)
+        preview_name = await _deliver(request, req.job_id, preview_name)
+        editor_preview_url = f"/videos/{req.job_id}/{preview_name}"
         new_video_url = f"/videos/{req.job_id}/{served_name}"
         new_recipe = {"v": 1, "segments": segments,
                       "canonical_range": canonical_range}
@@ -6696,7 +6716,7 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
         new_start = min(s['start'] for s in segments)
         new_end = max(s['end'] for s in segments)
 
-        updates = {'video_url': new_video_url, 'start': new_start,
+        updates = {'video_url': new_video_url, 'editor_preview_url': editor_preview_url, 'start': new_start,
                    'end': new_end, 'recipe': new_recipe,
                    'frame_type': active_frame if (active_frame and active_frame != 'none') else None,
                    'frame_scale': scale if (active_frame and active_frame != 'none') else 1.0,
@@ -6731,6 +6751,7 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
         return {
             "success": True,
             "new_video_url": new_video_url,
+            "editor_preview_url": editor_preview_url,
             "recipe": new_recipe,
             "framing": framing,
             "start": new_start,
