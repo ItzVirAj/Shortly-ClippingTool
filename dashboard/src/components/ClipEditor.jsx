@@ -2,8 +2,8 @@ import React, { useState, useEffect, useReducer, useRef, useCallback, useMemo, u
 import {
     X, Loader2, Plus, Trash2, ChevronUp, ChevronDown, Scissors,
     AlertCircle, Undo2, Redo2, ChevronsRight, ChevronsLeft,
-    PanelLeft, PanelLeftClose, Film, Frame, Type, Bold, Italic,
-    AlignLeft, AlignCenter, AlignRight, Palette,
+    PanelLeft, PanelLeftClose, Film, Frame,
+    Download,
 } from 'lucide-react';
 
 const FRAME_OPTIONS = [
@@ -14,15 +14,9 @@ const FRAME_OPTIONS = [
 ];
 
 const TEXT_FONTS = [
-    { id: 'impact',      label: 'Impact',    css: 'Impact, fantasy' },
-    { id: 'arialbd',     label: 'Arial Bold', css: '"Arial", sans-serif' },
-    { id: 'ariblk',      label: 'Arial Black', css: '"Arial Black", sans-serif' },
-    { id: 'bahnschrift', label: 'Bahnschrift', css: '"Bahnschrift", "Franklin Gothic Medium", sans-serif' },
-    { id: 'arial',       label: 'Arial',     css: '"Arial", sans-serif' },
-    { id: 'calibri',     label: 'Calibri',   css: '"Calibri", "Segoe UI", sans-serif' },
-    { id: 'candara',     label: 'Candara',   css: '"Candara", "Segoe UI", sans-serif' },
-    { id: 'comic',       label: 'Comic Sans', css: '"Comic Sans MS", cursive' },
-    { id: 'consola',     label: 'Consolas',  css: '"Consolas", monospace' },
+    { id: 'anton', label: 'Anton', css: 'ShortlyAnton, sans-serif' },
+    { id: 'montserrat', label: 'Montserrat ExtraBold', css: 'ShortlyMontserrat, sans-serif' },
+    { id: 'inter', label: 'Inter Medium', css: 'ShortlyInter, sans-serif' },
 ];
 
 let _textIdCounter = 1;
@@ -32,7 +26,7 @@ const makeTextOverlay = () => ({
     x_pct: 0.5,
     y_pct: 0.1,
     font_size: 72,
-    font_id: 'impact',
+    font_id: 'anton',
     color: '#ffffff',
     bold: false,
     italic: false,
@@ -41,6 +35,8 @@ const makeTextOverlay = () => ({
 });
 import { getApiUrl, withParam } from '../config';
 import { apiFetch, apiJson, QuotaError, openQuotaWall } from '../lib/api';
+import TextOverlayPanel from './TextOverlayPanel';
+import './textOverlayFonts.css';
 import { useAuth } from '../contexts/AuthContext';
 
 // Full-screen clip editor: shows WHICH source segments a clip was cut from,
@@ -145,7 +141,13 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
     const [frameX, setFrameX] = useState(0.0);
     const [frameY, setFrameY] = useState(0.95);
     const [isDraggingFrame, setIsDraggingFrame] = useState(false);
-    const [framingApplyLoading, setFramingApplyLoading] = useState(false);
+    const [downloadUrl, setDownloadUrl] = useState(null);
+    const [downloading, setDownloading] = useState(false);
+    const [videoAspect, setVideoAspect] = useState(9 / 16);
+    const [frameAspect, setFrameAspect] = useState(10);
+    const [renderedFrameGeometry, setRenderedFrameGeometry] = useState([1, 0, 0.95]);
+    const [renderedCaptions, setRenderedCaptions] = useState(true);
+    const [cleanPreview, setCleanPreview] = useState(false);
     const previewContainerRef = useRef(null);
     // Text overlays
     const [textOverlays, setTextOverlays] = useState([]);
@@ -242,6 +244,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                 const loadedFrame = data.frame_type || (data.kick_framed ? 'kick' : null);
                 setFrameType(loadedFrame);
                 setRenderedFrameType(loadedFrame);
+                setRenderedFrameGeometry([data.frame_scale ?? 1, data.frame_x_pct ?? 0, data.frame_y_pct ?? 0.95]);
                 if (data.frame_scale) setFrameScale(data.frame_scale);
                 if (data.frame_x_pct !== undefined) setFrameX(data.frame_x_pct);
                 if (data.frame_y_pct !== undefined && data.frame_y_pct !== null) setFrameY(data.frame_y_pct);
@@ -250,7 +253,9 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                     setRenderedTextOverlays(data.text_overlays);
                 }
                 setReapplyCaptions(true);
-                setPreviewUrl(getApiUrl(`/videos/${jobId}/${data.current_file}`));
+                setDownloadUrl(getApiUrl(`/videos/${jobId}/${data.current_file}`));
+                setCleanPreview(!!data.editor_preview_url);
+                setPreviewUrl(getApiUrl(data.editor_preview_url || `/videos/${jobId}/${data.current_file}`));
             } catch (e) {
                 if (!cancelled) setLoadError(e.detail || e.message || 'could not load the clip recipe');
             }
@@ -275,11 +280,11 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
         if (!renderedSegments) return false;
         const segsDirty = JSON.stringify(segments) !== JSON.stringify(renderedSegments)
             || framing !== renderedFraming;
-        const frameDirty = frameType !== renderedFrameType;
+        const frameDirty = frameType !== renderedFrameType || (frameType && JSON.stringify([frameScale, frameX, frameY]) !== JSON.stringify(renderedFrameGeometry));
         const textDirty = JSON.stringify(textOverlays.map(({ id: _id, ...rest }) => rest))
             !== JSON.stringify((renderedTextOverlays || []).map(({ id: _id, ...rest }) => rest));
-        return segsDirty || frameDirty || textDirty;
-    }, [segments, renderedSegments, framing, renderedFraming, frameType, renderedFrameType, textOverlays, renderedTextOverlays]);
+        return segsDirty || frameDirty || textDirty || reapplyCaptions !== renderedCaptions;
+    }, [segments, renderedSegments, framing, renderedFraming, frameType, renderedFrameType, textOverlays, renderedTextOverlays, frameScale, frameX, frameY, renderedFrameGeometry, reapplyCaptions, renderedCaptions]);
 
     // Trim bounds: with the source gone, cuts must stay inside the range the
     // canonical file was rendered from.
@@ -295,7 +300,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
         || segments.some((s) => s.start < canonical.start - 0.05 || s.end > canonical.end + 0.05);
     const invalidSegments = segments.some(outOfRange);
     const overCaps = segments.length > limits.max_segments || total > limits.max_total_seconds;
-    const canRender = !rendering && segments.length > 0 && !invalidSegments && !overCaps
+    const canRender = !rendering && !downloading && segments.length > 0 && !invalidSegments && !overCaps
         && segments.every((s) => s.end - s.start >= minSeg)
         && (framing === 'auto' || sourceAvailable);
 
@@ -430,7 +435,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
         // Chrome from turning the gesture into a text selection (and then into
         // a native drag-and-drop, which swallows every later pointer event and
         // shows the 🚫 cursor instead of dragging anything).
-        if (e.button !== undefined && e.button !== 0) return;
+        if (rendering || downloading || (e.button !== undefined && e.button !== 0)) return;
         e.preventDefault();
         e.stopPropagation();
         const rect = trackEl?.getBoundingClientRect();
@@ -485,7 +490,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
     }, [onGhostMove]);
 
     const startGhostDrag = (e) => {
-        if (e.button !== undefined && e.button !== 0) return;
+        if (rendering || downloading || (e.button !== undefined && e.button !== 0)) return;
         if (!sourceAvailable || !sourceDuration) return;
         const rect = sourceTrackRef.current?.getBoundingClientRect();
         if (!rect) return;
@@ -771,7 +776,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
     }, [onScrubMove]);
 
     const startClipScrub = (e) => {
-        if (e.button !== undefined && e.button !== 0) return;
+        if (rendering || downloading || (e.button !== undefined && e.button !== 0)) return;
         const rect = clipTrackRef.current?.getBoundingClientRect();
         if (!rect || !clipTrackSeconds) return;
         // Same reason as the other tracks: without this Chrome turns the drag
@@ -851,6 +856,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
     // ---- keyboard -----------------------------------------------------------
     useEffect(() => {
         const onKey = (e) => {
+            if ((rendering || downloading) && e.key !== 'Escape') return;
             const tag = (e.target?.tagName || '').toLowerCase();
             const typing = tag === 'input' || tag === 'textarea' || tag === 'select';
             if (e.key === 'Escape') {
@@ -896,7 +902,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
 
     // ---- on-screen frame drag & drop ----------------------------------------
     const startFrameDrag = (e) => {
-        if (e.button !== undefined && e.button !== 0) return;
+        if (rendering || downloading || (e.button !== undefined && e.button !== 0)) return;
         e.preventDefault();
         e.stopPropagation();
         const container = previewContainerRef.current;
@@ -938,69 +944,6 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
         window.addEventListener('pointercancel', onUp);
     };
 
-    const handleApplyFrameNow = async () => {
-        if (!frameType || frameType === 'none') return;
-        setFramingApplyLoading(true);
-        setRenderError(null);
-        try {
-            const yPctVal = frameY >= 0.93 ? null : frameY;
-            const res = await apiFetch('/api/clip/frame', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    job_id: jobId,
-                    clip_index: clipIndex,
-                    frame_type: frameType,
-                    scale: frameScale,
-                    x_pct: frameX,
-                    y_pct: yPctVal,
-                }),
-            });
-            if (!res.ok) {
-                let detail = 'Failed to apply frame';
-                try { detail = (await res.json()).detail || detail; } catch { /* ignore */ }
-                throw new Error(detail);
-            }
-            const data = await res.json();
-            if (data.new_video_url) {
-                setPreviewUrl(withParam(getApiUrl(data.new_video_url), 't', Date.now()));
-                onRerendered?.(clipIndex, data);
-            }
-        } catch (e) {
-            setRenderError(e.message || 'Could not apply frame');
-        } finally {
-            setFramingApplyLoading(false);
-        }
-    };
-
-    const handleRemoveFrameNow = async () => {
-        setFramingApplyLoading(true);
-        setRenderError(null);
-        try {
-            const res = await apiFetch('/api/clip/frame', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    job_id: jobId,
-                    clip_index: clipIndex,
-                    frame_type: 'none',
-                    remove: true,
-                }),
-            });
-            if (!res.ok) throw new Error('Failed to remove frame');
-            const data = await res.json();
-            setFrameType(null);
-            if (data.new_video_url) {
-                setPreviewUrl(withParam(getApiUrl(data.new_video_url), 't', Date.now()));
-                onRerendered?.(clipIndex, data);
-            }
-        } catch (e) {
-            setRenderError(e.message || 'Could not remove frame');
-        } finally {
-            setFramingApplyLoading(false);
-        }
-    };
-
     // ---- text overlay helpers -----------------------------------------------
     const updateTextOverlay = useCallback((id, patch) => {
         setTextOverlays((prev) => prev.map((t) => t.id === id ? { ...t, ...patch } : t));
@@ -1012,7 +955,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
     }, []);
 
     const startTextDrag = useCallback((e, textId) => {
-        if (e.button !== undefined && e.button !== 0) return;
+        if (rendering || downloading || (e.button !== undefined && e.button !== 0)) return;
         e.preventDefault();
         e.stopPropagation();
         const container = previewContainerRef.current;
@@ -1046,7 +989,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
         window.addEventListener('pointermove', onMove);
         window.addEventListener('pointerup', onUp);
         window.addEventListener('pointercancel', onUp);
-    }, [textOverlays, previewContainerRef]);
+    }, [textOverlays, previewContainerRef, rendering, downloading]);
 
     // ---- re-render ----------------------------------------------------------
     useEffect(() => {
@@ -1056,7 +999,25 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
         return () => clearInterval(t);
     }, [rendering]);
 
-    const doRender = async () => {
+    const downloadVideo = async (url) => {
+        setDownloading(true);
+        try {
+            const response = await apiFetch(url);
+            if (!response.ok) throw new Error('Download failed. Please try again.');
+            const objectUrl = URL.createObjectURL(await response.blob());
+            const link = document.createElement('a');
+            link.href = objectUrl;
+            link.download = `shortly-clip-${clipIndex + 1}.mp4`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+        } finally {
+            setDownloading(false);
+        }
+    };
+
+    const doRender = async (download = false) => {
         if (!canRender) return;
         setRendering(true);
         setRenderError(null);
@@ -1090,11 +1051,16 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
             setRenderedFraming(data.framing || 'auto');
             setFraming(data.framing || 'auto');
             setRenderedFrameType(frameType);
+            setRenderedFrameGeometry([frameScale, frameX, frameY]);
+            setRenderedCaptions(reapplyCaptions);
             setRenderedTextOverlays(textOverlays.map((t) => ({ ...t })));
             dispatch({ type: 'init', segments: data.recipe.segments.map((s) => ({ ...s })) });
-            setPreviewUrl(withParam(getApiUrl(data.new_video_url), 't', Date.now()));
+            setDownloadUrl(getApiUrl(data.new_video_url));
+            setCleanPreview(!!data.editor_preview_url);
+            setPreviewUrl(withParam(getApiUrl(data.editor_preview_url || data.new_video_url), 't', Date.now()));
             onRerendered?.(clipIndex, data);
             refreshMe();
+            if (download) await downloadVideo(getApiUrl(data.new_video_url));
         } catch (e) {
             if (e instanceof QuotaError) {
                 refreshMe();
@@ -1373,7 +1339,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
             {/* main — three columns above xl, stacked below. select-none/touch-none
                 keep the browser from turning a drag on a track into a text
                 selection or a page pan. */}
-            <div className="flex-1 min-h-0 flex flex-col xl:flex-row gap-4 px-4 sm:px-6 py-4 overflow-y-auto xl:overflow-hidden select-none">
+            <div inert={rendering || downloading ? "" : undefined} className="flex-1 min-h-0 flex flex-col xl:flex-row gap-4 px-4 sm:px-6 py-4 overflow-y-auto xl:overflow-hidden select-none">
 
                 {/* ---- column 1 · source ---- */}
                 {sourceOpen && (
@@ -1537,11 +1503,13 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                     <div className="flex-1 min-h-0 flex items-center justify-center">
                         <div
                             ref={previewContainerRef}
-                            className="relative h-full max-h-full aspect-[9/16] bg-black rounded-card border border-rule overflow-hidden select-none group/player"
+                            style={{ aspectRatio: videoAspect, containerType: "inline-size" }}
+                            className="relative h-full max-h-full bg-black rounded-card border border-rule overflow-hidden select-none group/player"
                         >
                             <video
                                 ref={videoRef}
                                 src={previewUrl}
+                                onLoadedMetadata={(e) => setVideoAspect(e.currentTarget.videoWidth / e.currentTarget.videoHeight || 9 / 16)}
                                 controls
                                 playsInline
                                 className="w-full h-full object-contain"
@@ -1552,15 +1520,14 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                             />
 
                             {/* Live Interactive Draggable Brand Frame Overlay */}
-                            {frameType && (
+                            {frameType && (cleanPreview || frameType !== renderedFrameType || dirty) && (
                                 <div
                                     onPointerDown={startFrameDrag}
                                     style={{
                                         position: 'absolute',
-                                        top: `${frameY * 100}%`,
-                                        left: `${(frameX + (1 - frameScale) / 2) * 100}%`,
+                                        top: `${frameY >= 0.93 ? Math.max(0, 1 - frameScale * videoAspect / frameAspect) * 100 : Math.max(0, Math.min(1 - frameScale * videoAspect / frameAspect, frameY - frameScale * videoAspect / frameAspect / 2)) * 100}%`,
+                                        left: `${Math.max(0, Math.min(1 - frameScale, frameX + (1 - frameScale) / 2)) * 100}%`,
                                         width: `${frameScale * 100}%`,
-                                        transform: 'translateY(-50%)',
                                         cursor: isDraggingFrame ? 'grabbing' : 'grab',
                                     }}
                                     className={`z-20 group/frame touch-none transition-shadow ${
@@ -1572,6 +1539,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                                     <img
                                         src={`/frames/${frameType}.png`}
                                         alt={`${frameType} frame`}
+                                        onLoad={(e) => setFrameAspect(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight)}
                                         draggable={false}
                                         className="w-full h-auto pointer-events-none drop-shadow-md select-none"
                                     />
@@ -1588,7 +1556,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                                 </div>
                             )}
                             {/* Draggable Text Overlays */}
-                            {textOverlays.map((ov) => {
+                            {textOverlays.filter(() => cleanPreview || dirty || !renderedTextOverlays.length).map((ov) => {
                                 const fontDef = TEXT_FONTS.find((f) => f.id === ov.font_id) || TEXT_FONTS[0];
                                 const isSelected = selectedTextId === ov.id;
                                 return (
@@ -1603,7 +1571,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                                             transform: 'translate(-50%, -50%)',
                                             cursor: isDraggingText && isSelected ? 'grabbing' : 'grab',
                                             fontFamily: fontDef.css,
-                                            fontSize: `${Math.round(ov.font_size * 0.065)}cqw`,
+                                            fontSize: `${ov.font_size / 10.8}cqw`,
                                             color: ov.color || '#fff',
                                             fontWeight: ov.bold ? 'bold' : 'normal',
                                             fontStyle: ov.italic ? 'italic' : 'normal',
@@ -1614,9 +1582,9 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                                             padding: ov.bg_opacity > 0.01 ? '2px 8px' : '0',
                                             borderRadius: ov.bg_opacity > 0.01 ? '3px' : '0',
                                             userSelect: 'none',
-                                            whiteSpace: 'pre-wrap',
-                                            maxWidth: '90%',
-                                            textAlign: 'center',
+                                            whiteSpace: 'pre',
+
+                                            textAlign: 'left',
                                             lineHeight: 1.1,
                                         }}
                                         className={`z-30 touch-none transition-[outline] ${isSelected ? 'outline outline-2 outline-brass outline-offset-2' : 'hover:outline hover:outline-1 hover:outline-brass/60 hover:outline-offset-1'}`}
@@ -1846,8 +1814,8 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                                 {frameType && (
                                     <button
                                         type="button"
-                                        onClick={handleRemoveFrameNow}
-                                        disabled={framingApplyLoading}
+                                        onClick={() => setFrameType(null)}
+                                        disabled={rendering || downloading}
                                         className="text-[11px] text-danger hover:underline lowercase"
                                     >
                                         clear frame
@@ -1971,12 +1939,12 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                                     <div className="pt-2 border-t border-rule flex items-center gap-2">
                                         <button
                                             type="button"
-                                            onClick={handleApplyFrameNow}
-                                            disabled={framingApplyLoading}
+                                            onClick={() => doRender(false)}
+                                            disabled={!canRender || !dirty}
                                             className="flex-1 btn-primary py-1.5 px-2 text-xs flex items-center justify-center gap-1.5 rounded-input"
                                         >
-                                            {framingApplyLoading ? <Loader2 size={13} className="animate-spin" /> : <Frame size={13} />}
-                                            {framingApplyLoading ? 'applying…' : 'apply frame to video'}
+                                            {rendering ? <Loader2 size={13} className="animate-spin" /> : <Frame size={13} />}
+                                            {rendering ? 'rendering…' : 'render frame & edits'}
                                         </button>
                                         <button
                                             type="button"
@@ -1991,6 +1959,11 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                             )}
                         </div>
                         </div>
+
+                        <TextOverlayPanel overlays={textOverlays} selectedId={selectedTextId}
+                            fonts={TEXT_FONTS} disabled={rendering || downloading}
+                            onSelect={setSelectedTextId} onUpdate={updateTextOverlay} onDelete={deleteTextOverlay}
+                            onAdd={() => { const item = makeTextOverlay(); setTextOverlays((prev) => [...prev, item]); setSelectedTextId(item.id); }} />
 
                         {/* keyboard legend — moved off the clip track, which no longer
                             has the width for it */}
@@ -2022,12 +1995,25 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                             >
                                 {rendering ? 'close' : dirty ? 'cancel' : 'close'}
                             </button>
-                            <button className="btn-primary flex-1 flex items-center justify-center gap-2" disabled={!canRender || !dirty} onClick={doRender}>
+                            <button className="btn-primary flex-1 flex items-center justify-center gap-2" disabled={!canRender || !dirty} onClick={() => doRender(false)}>
                                 {rendering
                                     ? (<><Loader2 size={16} className="animate-spin text-brassink" /> re-rendering… {renderSeconds}s</>)
                                     : (needsSourcePath ? 're-render from source' : 're-render clip')}
                             </button>
                         </div>
+                        <button type="button" className="btn-primary w-full mt-2 flex items-center justify-center gap-2"
+                            disabled={rendering || downloading || (dirty ? !canRender : !downloadUrl)}
+                            onClick={async () => {
+                                if (dirty) { await doRender(true); return; }
+                                try { setRenderError(null); await downloadVideo(downloadUrl); }
+                                catch (e) { setRenderError(e.message); }
+                            }}>
+                            {downloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                            {downloading ? 'downloading…' : dirty ? 'render & download' : 'download video'}
+                        </button>
+                        {!cleanPreview && (renderedFrameType || renderedTextOverlays.length > 0) && dirty && (
+                            <p className="text-xs text-muted mt-2">The previous export has baked-in overlays. Render once to refresh the editable preview.</p>
+                        )}
                         {rendering && (
                             <p className="text-[11px] text-muted mt-2 lowercase">
                                 you can close this editor; the render keeps going and the clip card updates when it finishes
