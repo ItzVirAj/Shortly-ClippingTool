@@ -35,6 +35,8 @@ const makeTextOverlay = () => ({
 });
 import { getApiUrl, withParam } from '../config';
 import { apiFetch, apiJson, QuotaError, openQuotaWall } from '../lib/api';
+import { CaptionLayer, LookPicker, StickerLayer, StickerPanel } from '../captions/CaptionPanel';
+import { clipWords, useClipFrame } from '../captions/clipCaptionState';
 import TextOverlayPanel from './TextOverlayPanel';
 import './textOverlayFonts.css';
 import { useAuth } from '../contexts/AuthContext';
@@ -150,6 +152,15 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
     const [cleanPreview, setCleanPreview] = useState(false);
     const previewContainerRef = useRef(null);
     // Text overlays
+    const [look, setLook] = useState(null);
+    const [savedLook, setSavedLook] = useState(null);
+    const [stickers, setStickers] = useState([]);
+    const [savedStickers, setSavedStickers] = useState([]);
+    const [applyAll, setApplyAll] = useState(false);
+    const [pendingLook, setPendingLook] = useState(false);
+    const [selectedSticker, selectSticker] = useState(null);
+    const [captionTab, setCaptionTab] = useState('Captions');
+    const changeSticker = (id, patch) => setStickers(items => items.map(item => item.id === id ? {...item, ...patch} : item));
     const [textOverlays, setTextOverlays] = useState([]);
     const [selectedTextId, setSelectedTextId] = useState(null);
     const [isDraggingText, setIsDraggingText] = useState(false);
@@ -252,10 +263,14 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                     setTextOverlays(data.text_overlays.map((t) => ({ ...t, id: t.id || `txt_${_textIdCounter++}` })));
                     setRenderedTextOverlays(data.text_overlays);
                 }
-                setReapplyCaptions(true);
+                setLook(data.captionLook); setSavedLook(data.captionLook);
+                setApplyAll(false); setPendingLook(!!data.look_pending);
+                setStickers(data.stickers || []); setSavedStickers(data.stickers || []);
+                setReapplyCaptions(data.captionLook?.captionsEnabled ?? true);
+                setRenderedCaptions(data.captionLook?.captionsEnabled ?? true);
                 setDownloadUrl(getApiUrl(`/videos/${jobId}/${data.current_file}`));
                 setCleanPreview(!!data.editor_preview_url);
-                setPreviewUrl(getApiUrl(data.editor_preview_url || `/videos/${jobId}/${data.current_file}`));
+                setPreviewUrl(getApiUrl((data.captionLook && data.caption_preview_url) || data.editor_preview_url || `/videos/${jobId}/${data.current_file}`));
             } catch (e) {
                 if (!cancelled) setLoadError(e.detail || e.message || 'could not load the clip recipe');
             }
@@ -264,6 +279,13 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
     }, [jobId, clipIndex]);
 
     const words = useMemo(() => (edl?.words || []), [edl]);
+    const previewFrame = useClipFrame(previewUrl);
+    const timedWords = useMemo(() => clipWords(words, segments), [words, segments]);
+    const changeLook = next => {
+        if (!look && edl?.caption_preview_url) setPreviewUrl(getApiUrl(edl.caption_preview_url));
+        setLook(next);
+        setReapplyCaptions(next.captionsEnabled);
+    };
     const sourceAvailable = !!edl?.source?.available;
     const sourceDuration = edl?.source?.duration || 0;
     const canonical = useMemo(() => edl?.canonical_range || { start: 0, end: 0 }, [edl]);
@@ -283,8 +305,8 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
         const frameDirty = frameType !== renderedFrameType || (frameType && JSON.stringify([frameScale, frameX, frameY]) !== JSON.stringify(renderedFrameGeometry));
         const textDirty = JSON.stringify(textOverlays.map(({ id: _id, ...rest }) => rest))
             !== JSON.stringify((renderedTextOverlays || []).map(({ id: _id, ...rest }) => rest));
-        return segsDirty || frameDirty || textDirty || reapplyCaptions !== renderedCaptions;
-    }, [segments, renderedSegments, framing, renderedFraming, frameType, renderedFrameType, textOverlays, renderedTextOverlays, frameScale, frameX, frameY, renderedFrameGeometry, reapplyCaptions, renderedCaptions]);
+        return pendingLook || applyAll || JSON.stringify(look) !== JSON.stringify(savedLook) || JSON.stringify(stickers) !== JSON.stringify(savedStickers) || segsDirty || frameDirty || textDirty || reapplyCaptions !== renderedCaptions;
+    }, [look, savedLook, stickers, savedStickers, pendingLook, applyAll, segments, renderedSegments, framing, renderedFraming, frameType, renderedFrameType, textOverlays, renderedTextOverlays, frameScale, frameX, frameY, renderedFrameGeometry, reapplyCaptions, renderedCaptions]);
 
     // Trim bounds: with the source gone, cuts must stay inside the range the
     // canonical file was rendered from.
@@ -1031,6 +1053,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                     segments: segments.map((s) => ({ start: s.start, end: s.end })),
                     snap_to_words: false, // boundaries are already word-snapped client-side
                     reapply_captions: reapplyCaptions,
+                    captionLook: look, stickers, applyLookToAll: applyAll,
                     framing,
                     frame_type: frameType || 'none',
                     frame_scale: frameScale,
@@ -1052,6 +1075,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
             setFraming(data.framing || 'auto');
             setRenderedFrameType(frameType);
             setRenderedFrameGeometry([frameScale, frameX, frameY]);
+            setSavedLook(look); setSavedStickers(stickers); setPendingLook(false); setApplyAll(false);
             setRenderedCaptions(reapplyCaptions);
             setRenderedTextOverlays(textOverlays.map((t) => ({ ...t })));
             dispatch({ type: 'init', segments: data.recipe.segments.map((s) => ({ ...s })) });
@@ -1519,6 +1543,8 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                                 onPause={stopPlayLoop}
                             />
 
+                            <CaptionLayer look={look} words={timedWords} time={playhead}/>
+                            <StickerLayer stickers={stickers} time={playhead} change={changeSticker} select={selectSticker}/>
                             {/* Live Interactive Draggable Brand Frame Overlay */}
                             {frameType && (cleanPreview || frameType !== renderedFrameType || dirty) && (
                                 <div
@@ -1800,13 +1826,15 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                                     <span className="w-8 h-4 rounded-full bg-paper3 peer-checked:bg-brass transition-colors after:content-[''] after:absolute after:left-0.5 after:top-0.5 after:w-3 after:h-3 after:rounded-full after:bg-ink after:transition-transform peer-checked:after:translate-x-4" />
                                 </span>
                             </label>
-                            <label className="flex items-center justify-between cursor-pointer">
-                                <span className="text-xs lowercase text-ink2">re-apply captions after recut</span>
-                                <span className="relative inline-flex items-center">
-                                    <input type="checkbox" checked={reapplyCaptions} onChange={(e) => setReapplyCaptions(e.target.checked)} className="sr-only peer" />
-                                    <span className="w-8 h-4 rounded-full bg-paper3 peer-checked:bg-brass transition-colors after:content-[''] after:absolute after:left-0.5 after:top-0.5 after:w-3 after:h-3 after:rounded-full after:bg-ink after:transition-transform peer-checked:after:translate-x-4" />
-                                </span>
-                            </label>
+                            <div className="space-y-3 border-t border-rule pt-3">
+                                <div className="flex gap-2">{['Captions','Memes/Emojis'].map(tab =>
+                                    <button key={tab} type="button" aria-pressed={captionTab===tab} className={captionTab===tab?'btn-primary':'btn-ghost'} onClick={()=>setCaptionTab(tab)}>{tab}</button>)}</div>
+                                {captionTab==='Captions' ? <>
+                                    <LookPicker frame={previewFrame} look={look} onChange={changeLook}/>
+                                    {look && <label className="text-xs"><input type="checkbox" checked={applyAll} onChange={e=>setApplyAll(e.target.checked)}/> Save this look for every clip in this job</label>}
+                                </> : <StickerPanel stickers={stickers} setStickers={setStickers} selected={selectedSticker} select={selectSticker}
+                                    change={changeSticker} time={playhead} duration={total}/>}
+                            </div>
                         {/* Brand Frames section */}
                         <div className="space-y-2.5 pt-3 border-t border-rule">
                             <div className="flex items-center justify-between">

@@ -15,8 +15,8 @@ from ffmpeg_utils import QUALITY, video_encode_args
 
 ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / 'dashboard/public/captions'
-STYLES = {s['id']: s for s in json.loads((ASSETS / 'captionStyles.json').read_text())}
-ASSET_IDS = frozenset(json.loads((ASSETS / 'stickers.json').read_text()))
+STYLES = {s['id']: s for s in json.loads((ROOT / 'dashboard/src/captions/captionStyles.json').read_text())}
+ASSET_IDS = frozenset(json.loads((ROOT / 'dashboard/src/captions/stickers.json').read_text()))
 
 
 class Controls(BaseModel):
@@ -150,21 +150,6 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
                     current = idx == active
                     fill = style['highlight'] if current else style['fill']
                     overrides = rf'\1c{color(fill)}'
-                    if current and style['box']:
-                        overrides += rf"\bord5\3c{color(style['box'])}"
-                        width = face.getlength(' '.join(labels[i] for i in line))
-                        prefix = ''.join(labels[i]+' ' for i in line if i < idx)
-                        left = round(540-width/2+face.getlength(prefix)-6)
-                        w, h = round(face.getlength(text)+12), round(size*1.15)
-                        event(start,end,rf"\an7\pos({left},{cy-h//2})\p1\bord0\shad0\1c{color(style['box'])}",
-                              f'm 6 0 l {w-6} 0 q {w} 0 {w} 6 l {w} {h-6} l {w-5} {h} 5 {h} 0 {h-5} 0 5',0)
-                    if style.get('gradient'):
-                        n = max(1,len(text)-1)
-                        def tint(j):
-                            a,b=style['fill'],style['gradient']
-                            return '#' + ''.join(f'{round(int(a[k:k+2],16)*(1-j/n)+int(b[k:k+2],16)*j/n):02x}' for k in (1,3,5))
-                        text = ''.join(r'{\1c'+color(tint(j))+'}'+ch for j,ch in enumerate(text))
-                        overrides += rf'\u{int(current)}'
                     if current and style['animation'] == 'sweep':
                         overrides += rf"\2c{color(style['fill'])}\kf{duration}"
                     if style['animation'] == 'typewriter':
@@ -172,10 +157,97 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
                             text = ''
                         elif current:
                             text = ''.join(r'{\k'+str(round((j+1)*duration/len(text))-round(j*duration/len(text)))+'}'+ch for j,ch in enumerate(text))
-                            overrides += r'\2a&HFF&'
+                            overrides += r'\2a&HFF&\bord0'
                     parts.append('{'+overrides+'}'+text+r'{\rMain'+tags+'}')
                 event(start,end,tags,' '.join(parts))
     return header+'\n'.join(events)+'\n'
+
+
+def raster_track(cwd, words, style, width):
+    """Make one transparent strip per word change for gradient/pill typography.
+
+    The concat demuxer holds each strip until the next boundary. This avoids
+    rasterizing every video frame and lets Pillow shape the full line for RTL.
+    """
+    from PIL import Image, ImageColor, ImageDraw
+    from unicodedata import bidirectional
+
+    fitted_width = max(1, round(width * .82))
+    runs = []
+    for group in groups(words, style):
+        labels = [w['w'].upper() if style['case'] == 'upper' else
+                  w['w'].lower() if style['case'] == 'lower' else w['w'] for w in group]
+        face = font(font_file(style), max(1, round(style['size'] * width / 1080)))
+        longest = max(face.getlength(t) for t in labels)
+        if longest > fitted_width:
+            face = font(font_file(style), max(1, int(face.size * fitted_width / longest)))
+        lines = [[]]
+        for index, label in enumerate(labels):
+            if lines[-1] and face.getlength(' '.join(labels[i] for i in lines[-1])+ ' '+label) > fitted_width:
+                lines.append([])
+            lines[-1].append(index)
+        pitch = max(2, round(face.size * 1.35))
+        runs.append((group, labels, face, lines, pitch))
+
+    height = max(pitch * (len(lines)+1) for _, _, _, lines, pitch in runs)
+    empty = Image.new('RGBA', (width, height))
+    empty.save(cwd/'empty.png')
+    frames = []
+    cursor = 0.0
+    for group, labels, face, lines, pitch in runs:
+        for active, word in enumerate(group):
+            start = max(cursor, word['s'])
+            end = group[active+1]['s'] if active+1 < len(group) else word['e']
+            if end <= start:
+                continue
+            if start > cursor:
+                frames.append(('empty.png',start-cursor))
+            canvas = empty.copy()
+            draw = ImageDraw.Draw(canvas)
+            for row, line in enumerate(lines):
+                text = ' '.join(labels[i] for i in line)
+                rtl = next((bidirectional(ch) in ('R','AL') for ch in text
+                            if bidirectional(ch) in ('L','R','AL')), False)
+                y = round(height / 2 + (row-(len(lines)-1)/2)*pitch)
+                left = (width-face.getlength(text))/2
+                if active in line:
+                    before = ''.join(labels[i]+' ' for i in line if i < active)
+                    word_w = face.getlength(labels[active])
+                    x = left + face.getlength(before)
+                    if rtl:
+                        x = width-x-word_w
+                    pad = max(1, face.size//10)
+                    if style['box']:
+                        draw.rounded_rectangle((x-pad,y-pitch*.45,x+word_w+pad,y+pitch*.45),
+                                               radius=pitch*.23,fill=style['box'])
+                    if style.get('underline'):
+                        draw.line((x,y+face.size*.5,x+word_w,y+face.size*.5),
+                                  fill=style['underline'],width=max(1,pad//2))
+                stroke = round(style['stroke']*width/1080)
+                draw.text((width/2,y),text,font=face,anchor='mm',fill=style['fill'],
+                          stroke_width=stroke,stroke_fill=style['outline'])
+                if style.get('gradient'):
+                    mask = Image.new('L', canvas.size)
+                    ImageDraw.Draw(mask).text((width/2,y),text,font=face,anchor='mm',fill=255)
+                    gradient = Image.new('RGBA', (width,1))
+                    c1,c2 = map(ImageColor.getrgb,(style['fill'],style['gradient']))
+                    span = max(1,width-left*2)
+                    for px in range(width):
+                        mix = min(1,max(0,(px-left)/span))
+                        gradient.putpixel((px,0),tuple(round(a+(b-a)*mix) for a,b in zip(c1,c2))+(255,))
+                    canvas.paste(gradient.resize(canvas.size),mask=mask)
+                elif active in line and style['highlight'] != style['fill']:
+                    draw.text((x+word_w/2,y), labels[active],font=face,anchor='mm',fill=style['highlight'])
+            name = f'run{len(frames)}.png'
+            canvas.save(cwd/name)
+            frames.append((name,end-start))
+            cursor = end
+    frames.append(('empty.png',.04))
+    with (cwd/'runs.ffconcat').open('w', encoding='ascii') as stream:
+        stream.write('ffconcat version 1.0\n')
+        for name, duration in frames:
+            stream.write(f"file '{name}'\noption framerate 100\nduration {duration:.4f}\n")
+        stream.write("file 'empty.png'\noption framerate 100\n")
 
 
 def composite(source, target, words, look, stickers):
@@ -190,12 +262,19 @@ def composite(source, target, words, look, stickers):
         video = '[0:v]'
         if look and look.captionsEnabled and words:
             style = STYLES[look.captionStyleId] | look.captionSettings.model_dump(exclude_none=True)
-            (cwd/'fonts').mkdir()
-            shutil.copy(font_file(style), cwd/'fonts')
-            (cwd/'look.ass').write_text(caption_ass(words,style,width/height),encoding='utf-8')
-            filters.append(video+"ass=look.ass:fontsdir=fonts[captioned]")
+            if style.get('gradient') or style['box']:
+                raster_track(cwd, words, style, width)
+                inputs.extend(['-f','concat','-safe','0','-i','runs.ffconcat'])
+                pos = {'top':.2,'center':.5,'bottom':.75}[style['position']]
+                filters.append(f"{video}[1:v]overlay=x=0:y=H*{pos}-h/2:eof_action=pass[captioned]")
+            else:
+                (cwd/'fonts').mkdir()
+                shutil.copy(font_file(style), cwd/'fonts')
+                (cwd/'look.ass').write_text(caption_ass(words,style,width/height),encoding='utf-8')
+                filters.append(video+"ass=look.ass:fontsdir=fonts[captioned]")
             video = '[captioned]'
-        for idx, sticker in enumerate(stickers,1):
+        first_sticker = 2 if inputs else 1
+        for idx, sticker in enumerate(stickers, first_sticker):
             inputs.extend(['-loop','1','-framerate','30','-i',str(ASSETS/(sticker.asset+'.png'))])
             px = max(2,round(width*sticker.scale))
             filters.append(f"[{idx}:v]scale=w='max(2,{px}*min(1,0.7+2.5*max(0,t-{sticker.start})))':h=-1:eval=frame[s{idx}]")
