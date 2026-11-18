@@ -1638,21 +1638,21 @@ function App() {
           </div>
         </header>
 
-        {/* Persistent Missing Keys Banner — visible on every screen */}
+        {/* Persistent Missing Keys Banner — unified translucent Apple glass */}
         {keysMissing && activeTab !== 'settings' && (
-          <div className="mx-3 sm:mx-6 mt-3 px-3.5 sm:px-4 py-3 bg-paper2 border border-rule rounded-card flex flex-wrap items-center justify-between gap-2.5 sm:gap-4 shrink-0 animate-fade">
-            <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 text-sm text-ink2 min-w-0 flex-1">
-              <KeyRound size={16} className="shrink-0 text-warn mt-0.5 sm:mt-0" />
-              <div className="min-w-0">
-                <span className="font-medium text-ink">Gemini API key missing.</span>{' '}
-                <span className="text-muted">
-                  Set your Gemini API key in Settings, or toggle <strong className="text-ink font-semibold">Free / Manual</strong> mode below to generate clips without an API key.
+          <div className="mx-3 sm:mx-6 mt-3 px-4 py-3 bg-white/[0.05] backdrop-blur-2xl border border-white/[0.10] border-t-white/[0.16] rounded-2xl shadow-[0_8px_24px_-12px_rgba(0,0,0,0.45)] flex flex-wrap items-center justify-between gap-2.5 sm:gap-4 shrink-0 animate-fade">
+            <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 text-xs sm:text-sm text-white/80 min-w-0 flex-1">
+              <KeyRound size={16} className="shrink-0 text-amber-300 mt-0.5 sm:mt-0" />
+              <div className="min-w-0 leading-relaxed">
+                <span className="font-semibold text-white">Gemini API key missing.</span>{' '}
+                <span className="text-white/60">
+                  Set your Gemini API key in Settings, or toggle <strong className="text-white font-semibold">Free / Manual</strong> mode below to generate clips without an API key.
                 </span>
               </div>
             </div>
             <button
               onClick={() => goToTab('settings')}
-              className="btn-quiet px-3 py-1.5 text-xs shrink-0 w-full sm:w-auto"
+              className="btn-ghost px-3.5 py-1.5 text-xs shrink-0 w-full sm:w-auto"
             >
               Go to Settings
             </button>
@@ -2201,7 +2201,7 @@ function App() {
             </div>
           )}
 
-          {activeTab === 'publishing' && !billingEnabled && <div className="h-full overflow-y-auto"><PublishingTab onConnect={() => setShowYouTubeSetupModal(true)} /></div>}
+          {activeTab === 'publishing' && !billingEnabled && <div className="h-full overflow-y-auto custom-scrollbar"><PublishingTab onConnect={() => setShowYouTubeSetupModal(true)} /></div>}
           {/* View: History */}
           {activeTab === 'history' && (
             <div className="h-full overflow-y-auto custom-scrollbar animate-fade">

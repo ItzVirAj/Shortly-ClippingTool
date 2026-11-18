@@ -30,7 +30,19 @@ def is_session_protected(session_dir: Path) -> bool:
     return False
 
 
-def cleanup_old_sessions(data_dir: str = "live_sessions", retention_days: int = 7) -> int:
+def _resolve_live_dir(data_dir: Optional[str]) -> str:
+    if data_dir is not None:
+        return data_dir
+    explicit = os.environ.get("LIVE_SESSIONS_DIR")
+    if explicit:
+        return explicit
+    out = os.environ.get("OUTPUT_DIR")
+    if out:
+        return os.path.join(out, "live_sessions")
+    return "live_sessions"
+
+
+def cleanup_old_sessions(data_dir: Optional[str] = None, retention_days: int = 7) -> int:
     """Clean up sessions older than retention_days.
 
     If a session has protected clips (keep_forever=True), its raw buffer and
@@ -41,7 +53,7 @@ def cleanup_old_sessions(data_dir: str = "live_sessions", retention_days: int = 
     Returns:
         Number of sessions purged or pruned.
     """
-    base = Path(data_dir)
+    base = Path(_resolve_live_dir(data_dir))
     if not base.exists():
         return 0
 
@@ -101,9 +113,9 @@ def cleanup_old_sessions(data_dir: str = "live_sessions", retention_days: int = 
     return cleaned
 
 
-def cleanup_orphaned_temp_files(data_dir: str = "live_sessions") -> int:
+def cleanup_orphaned_temp_files(data_dir: Optional[str] = None) -> int:
     """Remove orphaned .concat.txt files and incomplete scratch files across sessions."""
-    base = Path(data_dir)
+    base = Path(_resolve_live_dir(data_dir))
     if not base.exists():
         return 0
 
@@ -125,7 +137,7 @@ def cleanup_orphaned_temp_files(data_dir: str = "live_sessions") -> int:
     return removed
 
 
-def startup_maintenance(data_dir: str = "live_sessions", retention_days: int = 7) -> Dict[str, Any]:
+def startup_maintenance(data_dir: Optional[str] = None, retention_days: int = 7) -> Dict[str, Any]:
     """Execute startup self-check and maintenance routine.
 
     1. Marks any interrupted sessions (left running on crash/restart) as failed.
@@ -133,7 +145,8 @@ def startup_maintenance(data_dir: str = "live_sessions", retention_days: int = 7
     3. Runs session retention policy.
     """
     logger.info("Running Live Clipper startup self-check and maintenance...")
-    base = Path(data_dir)
+    resolved = _resolve_live_dir(data_dir)
+    base = Path(resolved)
     base.mkdir(parents=True, exist_ok=True)
 
     recovered = 0

@@ -49,7 +49,13 @@ def install(app, output_dir, list_clips):
                 return
             if item['status'] == 'metadata':
                 from live_clipper import skipper
-                patch = await asyncio.to_thread(skipper.metadata, item)
+                try:
+                    patch = await asyncio.to_thread(skipper.metadata, item)
+                except Exception as meta_exc:
+                    import logging
+                    import traceback
+                    logging.getLogger('publishing').error('Metadata generation failed: %s\n%s', meta_exc, traceback.format_exc())
+                    patch = skipper.fallback_metadata(item)
                 store.progress(item['id'], lease, {**patch, 'status': 'queued'}, done=True)
                 return
             channel = await youtube.channel()
@@ -65,7 +71,12 @@ def install(app, output_dir, list_clips):
             result = await youtube.status(video_id)
             store.progress(item['id'], lease, result, done=True)
         except Exception as exc:
-            store.progress(item['id'], lease, {'status': 'attention', 'failed_stage': item['status'], 'error': str(exc) if isinstance(exc, (UploadProblem, FileNotFoundError)) else f'{item["status"].capitalize()} failed ({type(exc).__name__}). Clip skipped.', 'uncertain': bool(getattr(exc, 'uncertain', False))}, done=True)
+            import logging
+            import traceback
+            tb = traceback.format_exc()
+            logging.getLogger('publishing').error('Publishing worker failed in stage %s: %s\n%s', item.get('status'), exc, tb)
+            err_msg = str(exc) if isinstance(exc, (UploadProblem, FileNotFoundError)) else f'{item["status"].capitalize()} failed ({type(exc).__name__}: {exc}). Clip skipped.\n{tb}'
+            store.progress(item['id'], lease, {'status': 'attention', 'failed_stage': item['status'], 'error': err_msg, 'uncertain': bool(getattr(exc, 'uncertain', False))}, done=True)
         finally:
             pulse.cancel()
 
@@ -100,7 +111,21 @@ def install(app, output_dir, list_clips):
                 temporary.unlink(missing_ok=True)
                 raise HTTPException(409, 'Video changed during preparation. Try again after rendering finishes.')
             os.replace(temporary, snapshot)
-        item = store.add({'clip_key': body.clip_id, 'channel_id': channel['id'], 'channel_name': channel['title'], 'digest': digest, 'snapshot': str(snapshot), 'title': clip['name'][:100], 'description': '', 'privacy': 'private', 'made_for_kids': False, 'publish_at': None})
+        from live_clipper.skipper import configured_metadata_override
+        override = configured_metadata_override()
+        item = store.add({
+            'clip_key': body.clip_id,
+            'channel_id': channel['id'],
+            'channel_name': channel['title'],
+            'digest': digest,
+            'snapshot': str(snapshot),
+            'title': override.get('title') or clip['name'][:100],
+            'description': override.get('description', ''),
+            'tags': override.get('tags', []),
+            'privacy': 'private',
+            'made_for_kids': False,
+            'publish_at': None,
+        })
         return public(item)
 
     class Edit(BaseModel):
@@ -146,20 +171,31 @@ def install(app, output_dir, list_clips):
     @router.get('/skipper')
     async def skipper_status(request: Request):
         await guard(request)
+        from live_clipper.skipper import DEFAULT_LAYOUT, VALID_LAYOUTS
         settings = store.settings()
+        if settings.get('skipper_layout') not in VALID_LAYOUTS:
+            settings = {**settings, 'skipper_layout': DEFAULT_LAYOUT}
         import yt_oauth
         return {'channel': (yt_oauth.load_tokens() or {}).get('channel'), 'settings': settings, 'items': [
-            {k: i.get(k) for k in ('id','clip_key','title','status','error','video_id')}
+            {k: i.get(k) for k in ('id','clip_key','title','status','error','video_id','layout')}
             for i in store.list() if i['clip_key'].startswith('live:')]}
 
     @router.put('/skipper')
     async def skipper_mode(request: Request):
         await guard(request)
+        from live_clipper.skipper import DEFAULT_LAYOUT, VALID_LAYOUTS
         body = await request.json()
         enabled = body.get('enabled')
+        layout = body.get('layout')
+        if layout is not None and layout not in VALID_LAYOUTS:
+            raise HTTPException(422, 'Invalid layout mode')
+        if enabled is None and layout is not None:
+            return store.configure({'skipper_layout': layout})
         if not isinstance(enabled, bool):
             raise HTTPException(400, 'Select Auto or Manual')
         patch = {'skipper': enabled}
+        if layout is not None:
+            patch['skipper_layout'] = layout
         if enabled:
             channel = await youtube.channel()
             from caption_looks import Look
@@ -168,6 +204,9 @@ def install(app, output_dir, list_clips):
                 patch['skipper_look'] = Look.model_validate(body.get('look', store.settings().get('skipper_look', {}))).model_dump()
             except ValidationError as exc:
                 raise HTTPException(422, 'Invalid caption settings') from exc
+            if 'skipper_layout' not in patch:
+                saved_layout = store.settings().get('skipper_layout')
+                patch['skipper_layout'] = saved_layout if saved_layout in VALID_LAYOUTS else DEFAULT_LAYOUT
             patch.update(skipper_channel=channel['id'], skipper_name=channel['title'])
         return store.configure(patch)
 

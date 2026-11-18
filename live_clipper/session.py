@@ -713,11 +713,21 @@ class LiveClipperSession:
         self.persist_spikes_json()
 
 
+def _default_live_sessions_dir() -> str:
+    explicit = os.environ.get("LIVE_SESSIONS_DIR")
+    if explicit:
+        return explicit
+    out = os.environ.get("OUTPUT_DIR")
+    if out:
+        return os.path.join(out, "live_sessions")
+    return "live_sessions"
+
+
 class SessionManager:
     """Manages session creation, listing, recovery, and lifetime."""
 
-    def __init__(self, data_dir: str = "live_sessions") -> None:
-        self.data_dir = data_dir
+    def __init__(self, data_dir: Optional[str] = None) -> None:
+        self.data_dir = data_dir or _default_live_sessions_dir()
         self._active_session: Optional[LiveClipperSession] = None
         Path(self.data_dir).mkdir(parents=True, exist_ok=True)
 

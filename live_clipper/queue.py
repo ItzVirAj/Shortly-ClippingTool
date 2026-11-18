@@ -16,11 +16,31 @@ from live_clipper.models import QueueItem
 logger = logging.getLogger("live_clipper.queue")
 
 
+def _default_live_clipper_root() -> Path:
+    explicit = os.environ.get("LIVE_CLIPPER_DIR")
+    if explicit:
+        return Path(explicit)
+    out = os.environ.get("OUTPUT_DIR")
+    if out:
+        return Path(out) / "liveclipper"
+    return Path("output/liveclipper")
+
+
+def _default_live_sessions_root() -> Path:
+    explicit = os.environ.get("LIVE_SESSIONS_DIR")
+    if explicit:
+        return Path(explicit)
+    out = os.environ.get("OUTPUT_DIR")
+    if out:
+        return Path(out) / "live_sessions"
+    return Path("live_sessions")
+
+
 class ReviewQueue:
     """In-memory and file-backed review queue for live clips."""
 
     def __init__(self, data_root: Optional[Path] = None) -> None:
-        self.data_root = data_root or Path("output/liveclipper")
+        self.data_root = data_root or _default_live_clipper_root()
         self._items: Dict[str, QueueItem] = {}
         self._paused: bool = False
         self._lock = threading.Lock()
@@ -43,20 +63,33 @@ class ReviewQueue:
         if session_dir is not None:
             self.persist_session_queue(item.session_id, session_dir)
 
+    def _candidate_bases(self) -> List[Path]:
+        bases = [
+            _default_live_sessions_root(),
+            self.data_root,
+            _default_live_clipper_root(),
+            Path("live_sessions"),
+            Path("output/liveclipper"),
+        ]
+        seen = set()
+        out = []
+        for b in bases:
+            key = str(b.resolve()) if b.exists() else str(b)
+            if key not in seen:
+                seen.add(key)
+                out.append(b)
+        return out
+
     def _recover_session(self, session_id: str) -> None:
         """Recover queue items from disk for a given session."""
-        candidate_dirs = [
-            Path("live_sessions") / session_id,
-            self.data_root / session_id,
-            Path("output/liveclipper") / session_id,
-        ]
-        for s_dir in candidate_dirs:
+        for base in self._candidate_bases():
+            s_dir = base / session_id
             if (s_dir / "queue.json").exists():
                 self.load_session_queue(session_id, s_dir)
 
     def _recover_all(self) -> None:
         """Scan disk for all past sessions and load their queue.json."""
-        for base in [Path("live_sessions"), self.data_root, Path("output/liveclipper")]:
+        for base in self._candidate_bases():
             if not base.exists():
                 continue
             try:

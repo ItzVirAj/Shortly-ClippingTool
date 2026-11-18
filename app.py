@@ -45,10 +45,14 @@ if _shortly_bin_dir and os.path.isdir(_shortly_bin_dir):
 
 
 # Constants
-UPLOAD_DIR = "uploads"
-OUTPUT_DIR = "output"
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR") or "uploads"
+OUTPUT_DIR = os.environ.get("OUTPUT_DIR") or "output"
+LIVE_SESSIONS_DIR = os.environ.get("LIVE_SESSIONS_DIR") or (
+    os.path.join(OUTPUT_DIR, "live_sessions") if os.environ.get("OUTPUT_DIR") else "live_sessions"
+)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(LIVE_SESSIONS_DIR, exist_ok=True)
 
 # Configuration
 # Default to 1 if not set, but user can set higher for powerful servers
@@ -3934,7 +3938,7 @@ async def lifespan(app: FastAPI):
     # Recover any live clipper sessions interrupted by restart and run maintenance
     try:
         from live_clipper.hardening import startup_maintenance as _live_maintenance
-        _live_maintenance()
+        _live_maintenance(data_dir=LIVE_SESSIONS_DIR)
     except Exception as _e:
         print(f"⚠️ Live session recovery/maintenance error: {_e}")
     # Re-enqueue jobs that were mid-processing when we stopped (redeploy). Their
@@ -4287,7 +4291,7 @@ app.mount("/thumbnails", RestoringStaticFiles(
     authorize=lambda path, scope: _authorize_media("thumbnails", path, scope)), name="thumbnails")
 
 # Mount static files for editor media library
-EDITOR_MEDIA_DIR = os.path.join(os.path.dirname(os.path.abspath(OUTPUT_DIR)), "editor_media")
+EDITOR_MEDIA_DIR = os.environ.get("EDITOR_MEDIA_DIR") or os.path.join(os.path.abspath(OUTPUT_DIR), "editor_media")
 os.makedirs(EDITOR_MEDIA_DIR, exist_ok=True)
 app.mount("/editor-media", StaticFiles(directory=EDITOR_MEDIA_DIR), name="editor-media")
 app.mount("/api/editor/media/file", StaticFiles(directory=EDITOR_MEDIA_DIR), name="api-editor-media-file")
@@ -8186,9 +8190,11 @@ async def post_to_socials(req: SocialPostRequest, request: Request):
              raise HTTPException(status_code=404, detail=f"Video file not found: {file_path}")
 
         # Construct parameters for Upload-Post API
-        # Fallbacks
-        final_title = req.title or clip.get('title', 'Viral Short')
-        final_description = req.description or clip.get('video_description_for_instagram') or clip.get('video_description_for_tiktok') or "Check this out!"
+        # Fallbacks (respect DEFAULT_VIDEO_TITLE / DEFAULT_VIDEO_HASHTAGS if configured)
+        _env_title = (os.environ.get("DEFAULT_VIDEO_TITLE") or "").strip()
+        _env_hashtags = (os.environ.get("DEFAULT_VIDEO_HASHTAGS") or "").strip()
+        final_title = _env_title or req.title or clip.get('title', 'Viral Short')
+        final_description = _env_hashtags or req.description or clip.get('video_description_for_instagram') or clip.get('video_description_for_tiktok') or "Check this out!"
         
         # Prepare form data
         url = "https://api.upload-post.com/api/upload"
@@ -11090,8 +11096,11 @@ if not BILLING_ENABLED:
             })
 
         # 2. Live Clipper Clips (real-time live stream chat spikes & cuts)
-        live_pattern = os.path.join(OUTPUT_DIR, "liveclipper", "*", "queue.json")
-        for qf in glob.glob(live_pattern):
+        live_queue_files = set()
+        for live_base in {LIVE_SESSIONS_DIR, os.path.join(OUTPUT_DIR, "liveclipper"), "live_sessions"}:
+            for qf in glob.glob(os.path.join(live_base, "*", "queue.json")):
+                live_queue_files.add(os.path.abspath(qf))
+        for qf in live_queue_files:
             try:
                 with open(qf, "r", encoding="utf-8") as f:
                     q_items = json.load(f)
@@ -11141,9 +11150,14 @@ if not BILLING_ENABLED:
         else:
             target = os.path.abspath(OUTPUT_DIR)
 
-        proj_dir = os.path.abspath(".")
-        if not target.startswith(proj_dir):
-            raise HTTPException(status_code=400, detail="Invalid target path outside project directory.")
+        allowed_roots = [
+            os.path.abspath("."),
+            os.path.abspath(OUTPUT_DIR),
+            os.path.abspath(LIVE_SESSIONS_DIR),
+            os.path.abspath(UPLOAD_DIR),
+        ]
+        if not any(target == r or target.startswith(r + os.sep) for r in allowed_roots):
+            raise HTTPException(status_code=400, detail="Invalid target path outside allowed storage directories.")
 
         try:
             if sys.platform == "win32":
@@ -11173,10 +11187,15 @@ if not BILLING_ENABLED:
         source_type = req.get("source_type")
 
         deleted = False
-        proj_dir = os.path.abspath(".")
+        allowed_roots = [
+            os.path.abspath("."),
+            os.path.abspath(OUTPUT_DIR),
+            os.path.abspath(LIVE_SESSIONS_DIR),
+            os.path.abspath(UPLOAD_DIR),
+        ]
         if file_path and os.path.exists(file_path):
             abs_fp = os.path.abspath(file_path)
-            if abs_fp.startswith(proj_dir):
+            if any(abs_fp == r or abs_fp.startswith(r + os.sep) for r in allowed_roots):
                 try:
                     os.remove(abs_fp)
                     deleted = True
@@ -11194,15 +11213,14 @@ if not BILLING_ENABLED:
             except Exception:
                 pass
 
-            # Search both live_sessions and output/liveclipper to synchronize session stats
+            # Search LIVE_SESSIONS_DIR, legacy live_sessions, and OUTPUT_DIR/liveclipper to synchronize session stats
+            live_bases = list(dict.fromkeys([LIVE_SESSIONS_DIR, "live_sessions", os.path.join(OUTPUT_DIR, "liveclipper")]))
             candidate_dirs = []
             if session_id:
-                candidate_dirs.extend([
-                    os.path.join("live_sessions", session_id),
-                    os.path.join(OUTPUT_DIR, "liveclipper", session_id)
-                ])
+                for base in live_bases:
+                    candidate_dirs.append(os.path.join(base, session_id))
             else:
-                for base in ["live_sessions", os.path.join(OUTPUT_DIR, "liveclipper")]:
+                for base in live_bases:
                     if os.path.exists(base):
                         for s in os.listdir(base):
                             candidate_dirs.append(os.path.join(base, s))
@@ -11279,7 +11297,7 @@ if not BILLING_ENABLED:
 
         # Delete Live clips and synchronize session stats
         if source_type in ("all", "live"):
-            for base in ["live_sessions", os.path.join(OUTPUT_DIR, "liveclipper")]:
+            for base in list(dict.fromkeys([LIVE_SESSIONS_DIR, "live_sessions", os.path.join(OUTPUT_DIR, "liveclipper")])):
                 if not os.path.exists(base):
                     continue
                 for s_dir_name in os.listdir(base):

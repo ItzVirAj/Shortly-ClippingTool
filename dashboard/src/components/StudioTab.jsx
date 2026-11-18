@@ -33,7 +33,7 @@ export default function StudioTab({
               </span>
             </div>
 
-            <h1 className="font-display text-3xl sm:text-4xl text-white tracking-[0.02em]">
+            <h1 className="font-display text-3xl sm:text-4xl text-white tracking-[-0.025em]">
               Create Viral Shorts
             </h1>
 

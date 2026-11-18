@@ -60,6 +60,8 @@ def test_sticker_validation(patch):
 
 
 def test_skipper_freezes_look_for_each_capture(tmp_path, monkeypatch):
+    monkeypatch.delenv('OUTPUT_DIR', raising=False)
+    monkeypatch.delenv('PUBLISHING_DIR', raising=False)
     monkeypatch.chdir(tmp_path)
     store = Store(tmp_path / 'output/.publishing')
     store.configure(

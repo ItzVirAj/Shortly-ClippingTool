@@ -1,61 +1,73 @@
 /* =========================================================================
-   Unicorn Studio Dark Theme with Violet Accent
+   Shortly · Unified Apple-Inspired Glass Design System
+   Consistent translucent materials, optical typography, fluid tactile motion,
+   and unified brand pink (#e31084) primary actions across every view.
    ========================================================================= */
 
 .theme-unicorn,
 body.theme-unicorn {
-  /* TOKENS */
-  --uni-void: #08080a;
-  --uni-panel: #0d0d12;
-  --uni-card: #17171c;
-  --uni-elevated: #25252d;
-  --uni-iron: #31313a;
-  --uni-ash: #62626f;
-  --uni-fog: #8b8e9c;
-  --uni-pearl: #aeaac0;
-  --uni-chalk: #dad7de;
+  /* Core Tokens */
+  --uni-void: #0a0b10;
+  --uni-panel: rgba(16, 17, 24, 0.72);
+  --uni-panel-solid: #12131b;
+  --uni-card: rgba(22, 23, 33, 0.62);
+  --uni-card-solid: #171822;
+  --uni-elevated: rgba(255, 255, 255, 0.085);
+  --uni-iron: rgba(255, 255, 255, 0.11);
+  --uni-ash: rgba(255, 255, 255, 0.42);
+  --uni-fog: rgba(255, 255, 255, 0.58);
+  --uni-pearl: rgba(255, 255, 255, 0.78);
+  --uni-chalk: #ffffff;
+  --uni-pink: #e31084;
+  --uni-pink-hover: #f01b90;
+  --uni-pink-glow: rgba(227, 16, 132, 0.36);
   --uni-violet: #ab8ff1;
   --uni-iris: #8960f0;
-  --uni-aurora: radial-gradient(circle, rgb(142, 108, 228), rgb(114, 79, 201));
-  --uni-radius-card: 10px;
-  --uni-radius-ctl: 3px;
+  --uni-aurora: radial-gradient(circle, rgba(227, 16, 132, 0.25), rgba(137, 96, 240, 0.18));
 
-  /* Muted Semantic Colors (~60% saturation) */
-  --uni-success: #75b385;
-  --uni-warning: #dcb360;
-  --uni-danger: #db6e59;
+  /* Unified Apple Corner Scale */
+  --uni-radius-card: 20px;
+  --uni-radius-ctl: 12px;
+  --uni-radius-pill: 9999px;
 
-  /* Theme variable remapping */
+  /* Spring-like Critically Damped Motion */
+  --uni-ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Semantic Status Colors */
+  --uni-success: #34d399;
+  --uni-warning: #fbbf24;
+  --uni-danger: #fb7185;
+
+  /* Theme Variable Remapping */
   --color-paper: var(--uni-void);
-  --color-paper-2: var(--uni-panel);
-  --color-paper-3: var(--uni-card);
+  --color-paper-2: var(--uni-panel-solid);
+  --color-paper-3: var(--uni-card-solid);
   --color-ink: #ffffff;
   --color-ink-2: var(--uni-pearl);
   --color-muted: var(--uni-fog);
-  --color-accent: var(--uni-violet);
-  --color-accent-ink: var(--uni-void);
-  --color-focus: var(--uni-violet);
-  --color-rule: rgba(174, 170, 192, 0.18);
-  --color-rule-2: var(--uni-iron);
+  --color-accent: var(--uni-pink);
+  --color-accent-ink: #ffffff;
+  --color-focus: var(--uni-pink);
+  --color-rule: rgba(255, 255, 255, 0.09);
+  --color-rule-2: rgba(255, 255, 255, 0.14);
   --color-ok: var(--uni-success);
   --color-warn: var(--uni-warning);
   --color-danger: var(--uni-danger);
   --radius-card: var(--uni-radius-card);
   --radius-input: var(--uni-radius-ctl);
 
-  /* Root Canvas & Text (Rule 1 & 2) */
   background-color: var(--uni-void) !important;
   color: var(--uni-pearl) !important;
-  font-size: 16px;
-  line-height: 1.4;
-  letter-spacing: -0.01em;
+  font-optical-sizing: auto;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Scrollbars */
 .theme-unicorn,
 .theme-unicorn * {
   scrollbar-width: thin;
-  scrollbar-color: var(--uni-iron) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
 }
 .theme-unicorn ::-webkit-scrollbar {
   width: 6px;
@@ -65,567 +77,366 @@ body.theme-unicorn {
   background: transparent;
 }
 .theme-unicorn ::-webkit-scrollbar-thumb {
-  background-color: var(--uni-iron);
-  border-radius: 3px;
+  background-color: rgba(255, 255, 255, 0.16);
+  border-radius: 9999px;
+}
+.theme-unicorn ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.28);
 }
 
-/* Headings (Rule 2) */
+/* =========================================================================
+   Optical Typography (Apple Design §15: size-specific tracking & leading)
+   ========================================================================= */
 .theme-unicorn h1,
-.theme-unicorn h2,
-.theme-unicorn h3,
-.theme-unicorn h4,
-.theme-unicorn h5,
-.theme-unicorn h6,
 .theme-unicorn .font-display {
-  color: #ffffff !important;
-  line-height: 1.0 !important;
-  font-weight: 500 !important;
-  letter-spacing: 0.02em !important;
-}
-.theme-unicorn h1 {
-  letter-spacing: 0.02em !important;
+  color: #ffffff;
+  line-height: 1.12;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  font-optical-sizing: auto;
 }
 .theme-unicorn h2 {
-  letter-spacing: 0.02em !important;
+  color: #ffffff;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
-
-/* Text Hierarchy */
-.theme-unicorn p,
-.theme-unicorn .text-ink2 {
-  color: var(--uni-pearl) !important;
+.theme-unicorn h3,
+.theme-unicorn h4 {
+  color: #ffffff;
+  line-height: 1.28;
+  font-weight: 600;
+  letter-spacing: -0.015em;
 }
-.theme-unicorn .text-muted,
 .theme-unicorn .eyebrow,
-.theme-unicorn .readout,
-.theme-unicorn .text-zinc-400 {
-  color: var(--uni-fog) !important;
-}
-.theme-unicorn .text-ink,
-.theme-unicorn .text-zinc-100,
-.theme-unicorn .text-zinc-200 {
-  color: var(--uni-chalk) !important;
+.theme-unicorn .readout {
+  color: rgba(255, 255, 255, 0.56);
+  letter-spacing: 0.06em;
+  font-weight: 500;
 }
 
-/* Surfaces: Canvas, Sections, Cards, Hover (Global Rule 1) */
+/* =========================================================================
+   Translucent Glass Materials & Hierarchy (Apple Design §12)
+   ========================================================================= */
 .theme-unicorn .bg-paper,
 .theme-unicorn .bg-zinc-950 {
-  background-color: var(--uni-void) !important;
+  background-color: var(--uni-void);
 }
+
 .theme-unicorn .bg-paper2,
 .theme-unicorn .bg-zinc-900,
 .theme-unicorn .split-view-panel {
-  background-color: var(--uni-panel) !important;
-  border-color: rgba(174, 170, 192, 0.18) !important;
-}
-.theme-unicorn .card,
-.theme-unicorn .glass-panel,
-.theme-unicorn .bg-paper3,
-.theme-unicorn .bg-zinc-850,
-.theme-unicorn .bg-zinc-800 {
-  background: var(--uni-card) !important;
-  border: 1px solid rgba(174, 170, 192, 0.18) !important;
-  border-radius: var(--uni-radius-card) !important;
-  box-shadow: none !important;
-}
-.theme-unicorn .hover\:bg-paper3:hover,
-.theme-unicorn .hover\:bg-zinc-800:hover,
-.theme-unicorn .hover\:bg-zinc-700:hover,
-.theme-unicorn .card-hover:hover {
-  background-color: var(--uni-elevated) !important;
+  background-color: var(--uni-panel);
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  border-color: rgba(255, 255, 255, 0.09);
 }
 
-/* Floating Panels and Popovers */
+.theme-unicorn .card,
+.theme-unicorn .glass-panel {
+  background: rgba(20, 21, 30, 0.64) !important;
+  backdrop-filter: blur(24px) saturate(165%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(165%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  border-top-color: rgba(255, 255, 255, 0.16) !important;
+  border-radius: var(--uni-radius-card) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 14px 36px -16px rgba(0, 0, 0, 0.55) !important;
+}
+
+.theme-unicorn .card-hover {
+  transition: transform 220ms var(--uni-ease-spring), border-color 180ms ease, background-color 180ms ease !important;
+}
+.theme-unicorn .card-hover:hover {
+  background: rgba(28, 30, 42, 0.72) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+  transform: translateY(-2px);
+}
+
+/* Floating Popovers & Menus — thicker frosted material + contextual shadow */
 .theme-unicorn [role="menu"],
 .theme-unicorn [role="listbox"],
-.theme-unicorn .shadow-2xl,
 .theme-unicorn div.w-48.rounded-lg.bg-zinc-900 {
-  background-color: var(--uni-elevated) !important;
-  border: 1px solid rgba(174, 170, 192, 0.18) !important;
-  box-shadow: rgba(0, 0, 0, 0.4) 0 2px 4px -1.5px !important;
-  border-radius: var(--uni-radius-card) !important;
+  background: rgba(18, 19, 28, 0.88) !important;
+  backdrop-filter: blur(28px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-top-color: rgba(255, 255, 255, 0.2) !important;
+  box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.72), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+  border-radius: 16px !important;
 }
 
-/* Header and Navigation (Global Rules) */
-.theme-unicorn header,
-.theme-unicorn header.bg-paper {
-  background-color: transparent !important;
-  border-bottom: none !important;
-}
-.theme-unicorn aside:not(.app-sidebar),
-.theme-unicorn .md\:flex.w-20,
-.theme-unicorn nav.border-r {
-  background-color: transparent !important;
-  border-right: 1px solid rgba(174, 170, 192, 0.18) !important;
-}
+/* App Sidebar — heavier translucent structural layer */
 .theme-unicorn .app-sidebar {
-  background-color: #111216 !important;
+  background: rgba(12, 13, 20, 0.76) !important;
+  backdrop-filter: blur(28px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
   border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
 }
-.theme-unicorn .app-sidebar button {
-  border-bottom: none !important;
-}
+.theme-unicorn .app-sidebar button,
 .theme-unicorn .app-sidebar nav button {
-  border-bottom: none !important;
+  border-bottom: none;
 }
 .theme-unicorn .app-sidebar a,
 .theme-unicorn .app-sidebar a:hover {
   text-decoration: none !important;
   border-bottom: none !important;
 }
-.theme-unicorn nav:not(.app-sidebar nav) button {
-  color: var(--uni-pearl) !important;
-  border-radius: var(--uni-radius-ctl) !important;
-}
-.theme-unicorn nav button:hover {
-  background-color: var(--uni-elevated) !important;
-  color: var(--uni-chalk) !important;
-}
-.theme-unicorn nav button.bg-paper3,
-.theme-unicorn nav button[aria-current="page"] {
-  background-color: var(--uni-elevated) !important;
-  color: var(--uni-chalk) !important;
-  border-bottom: 1px solid var(--uni-violet) !important;
-}
-.theme-unicorn nav button[aria-current="page"] svg,
-.theme-unicorn nav button.bg-paper3 svg {
-  color: var(--uni-violet) !important;
-}
-.theme-unicorn nav button span.bg-brass {
-  background-color: var(--uni-violet) !important;
+
+/* Mobile Header */
+.theme-unicorn header.bg-paper {
+  background: rgba(12, 13, 20, 0.78) !important;
+  backdrop-filter: blur(24px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
 }
 
-/* Radii Controls (Global Rule 3) */
-.theme-unicorn button,
-.theme-unicorn input,
-.theme-unicorn select,
-.theme-unicorn textarea,
-.theme-unicorn .rounded-input,
-.theme-unicorn .rounded-lg,
-.theme-unicorn .rounded-md,
-.theme-unicorn .rounded-xl {
-  border-radius: var(--uni-radius-ctl) !important;
+/* =========================================================================
+   Unified Tactile Buttons (Apple Design §1: instant press response)
+   ========================================================================= */
+.theme-unicorn button {
+  transition: transform 120ms ease-out, background-color 160ms ease, border-color 160ms ease, filter 160ms ease, box-shadow 180ms ease;
 }
-.theme-unicorn .card,
-.theme-unicorn .glass-panel,
-.theme-unicorn [role="dialog"] > div,
-.theme-unicorn div.rounded-xl.border {
-  border-radius: var(--uni-radius-card) !important;
-}
-.theme-unicorn .rounded-full:not(.uni-circle) {
-  border-radius: var(--uni-radius-ctl) !important;
+.theme-unicorn button:not(:disabled):active {
+  transform: scale(0.975);
 }
 
-.theme-unicorn .btn-primary:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
-.theme-unicorn button[type="submit"]:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
-.theme-unicorn button.bg-emerald-600:not(.rounded-full):not([role="switch"]):not([data-icon-btn]):not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
-.theme-unicorn button.bg-emerald-500:not(.rounded-full):not([role="switch"]):not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
-.theme-unicorn button.bg-brass:not(.rounded-full):not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent) {
-  background: var(--uni-chalk) !important;
-  color: var(--uni-void) !important;
-  font-weight: 500 !important;
-  font-size: 14px !important;
-  padding: 8px 14px !important;
-  border-radius: var(--uni-radius-ctl) !important;
-  box-shadow: #31313a 0 -1px 0 0 !important;
-  border: none !important;
-  transition: background-color 0.15s ease !important;
-}
-.theme-unicorn .btn-primary:hover:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
-.theme-unicorn button[type="submit"]:hover:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
-.theme-unicorn button.bg-emerald-600:hover:not(.rounded-full):not([role="switch"]):not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
-.theme-unicorn button.bg-emerald-500:hover:not(.rounded-full):not([role="switch"]):not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
-.theme-unicorn button.bg-brass:hover:not(.rounded-full):not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent) {
-  background: rgb(200, 197, 205) !important;
-  color: var(--uni-void) !important;
-}
-.theme-unicorn .btn-primary:disabled:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
-.theme-unicorn button[type="submit"]:disabled:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
-.theme-unicorn button.bg-emerald-600:disabled:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
-.theme-unicorn button.bg-emerald-500:disabled:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent) {
-  background: var(--uni-elevated) !important;
-  color: var(--uni-ash) !important;
-  cursor: not-allowed !important;
-  box-shadow: none !important;
-  opacity: 1 !important;
-}
-
-/* Primary Action Buttons - Custom Brand Accent #e31084 */
+/* Primary CTA Buttons — Unified Brand Pink (#e31084) with pure white text */
+.theme-unicorn .btn-primary,
+.theme-unicorn button.btn-primary,
 .theme-unicorn button[data-tutorial="generate"],
 .theme-unicorn button.btn-generate-clips,
-button.btn-generate-clips,
 .theme-unicorn .btn-brand-accent,
 .theme-unicorn button.btn-brand-accent,
 .theme-unicorn a.btn-brand-accent,
+button.btn-generate-clips,
 button.btn-brand-accent,
 a.btn-brand-accent {
   background: #e31084 !important;
+  background-color: #e31084 !important;
   color: #ffffff !important;
-  border-color: #e31084 !important;
-  box-shadow: 0 4px 14px 0 rgba(227, 16, 132, 0.35) !important;
+  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  border-radius: var(--uni-radius-pill) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 6px 20px -6px rgba(227, 16, 132, 0.55) !important;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  text-transform: none !important;
+  opacity: 1;
 }
+
+.theme-unicorn .btn-primary *,
 .theme-unicorn .btn-brand-accent *,
 .theme-unicorn button.btn-brand-accent *,
 .btn-brand-accent *,
 button.btn-brand-accent * {
   color: #ffffff !important;
-  fill: #ffffff;
 }
-.theme-unicorn button[data-tutorial="generate"]:hover,
-.theme-unicorn button.btn-generate-clips:hover,
-button.btn-generate-clips:hover,
-.theme-unicorn .btn-brand-accent:hover,
-.theme-unicorn button.btn-brand-accent:hover,
-.theme-unicorn a.btn-brand-accent:hover,
-button.btn-brand-accent:hover,
-a.btn-brand-accent:hover {
-  background: #c80d73 !important;
+.theme-unicorn .btn-brand-accent svg,
+.theme-unicorn button.btn-brand-accent svg,
+.btn-brand-accent svg,
+button.btn-brand-accent svg {
   color: #ffffff !important;
-  border-color: #c80d73 !important;
+  stroke: #ffffff !important;
 }
+
+.theme-unicorn .btn-primary:hover:not(:disabled),
+.theme-unicorn button[data-tutorial="generate"]:hover:not(:disabled),
+.theme-unicorn button.btn-generate-clips:hover:not(:disabled),
+.theme-unicorn .btn-brand-accent:hover:not(:disabled),
+.theme-unicorn button.btn-brand-accent:hover:not(:disabled),
+.theme-unicorn a.btn-brand-accent:hover,
+button.btn-generate-clips:hover:not(:disabled),
+button.btn-brand-accent:hover:not(:disabled),
+a.btn-brand-accent:hover {
+  background: #f01b90 !important;
+  background-color: #f01b90 !important;
+  color: #ffffff !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 8px 24px -6px rgba(227, 16, 132, 0.68) !important;
+}
+
+.theme-unicorn .btn-primary:disabled,
 .theme-unicorn button[data-tutorial="generate"]:disabled,
 .theme-unicorn button.btn-generate-clips:disabled,
-button.btn-generate-clips:disabled,
 .theme-unicorn .btn-brand-accent:disabled,
 .theme-unicorn button.btn-brand-accent:disabled,
+button.btn-generate-clips:disabled,
 button.btn-brand-accent:disabled {
   background: #e31084 !important;
-  color: rgba(255, 255, 255, 0.7) !important;
+  color: rgba(255, 255, 255, 0.72) !important;
   opacity: 0.45 !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+}
+
+/* Secondary / Ghost / Quiet Buttons — Frosted Glass Pills */
+.theme-unicorn .btn-ghost,
+.theme-unicorn .btn-quiet,
+.theme-unicorn .btn-secondary {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: rgba(255, 255, 255, 0.88) !important;
+  border-radius: var(--uni-radius-pill) !important;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  text-transform: none !important;
+  backdrop-filter: blur(12px);
+}
+.theme-unicorn .btn-ghost:hover:not(:disabled),
+.theme-unicorn .btn-quiet:hover:not(:disabled),
+.theme-unicorn .btn-secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+  color: #ffffff !important;
+}
+.theme-unicorn .btn-ghost:disabled,
+.theme-unicorn .btn-quiet:disabled {
+  opacity: 0.4 !important;
   cursor: not-allowed !important;
 }
 
-/* Secondary Button (Rule 5) */
-.theme-unicorn .btn-ghost,
-.theme-unicorn .btn-quiet,
-.theme-unicorn .btn-secondary,
-.theme-unicorn button.border-rule,
-.theme-unicorn button.border-zinc-700 {
-  background-color: transparent !important;
-  border: 1px solid rgba(174, 170, 192, 0.6) !important;
-  color: var(--uni-pearl) !important;
-  border-radius: var(--uni-radius-ctl) !important;
-  transition: background-color 0.15s ease, border-color 0.15s ease !important;
+/* Danger Buttons — Tinted Translucent Rose Pill */
+.theme-unicorn .btn-danger {
+  background: rgba(244, 63, 94, 0.10) !important;
+  border: 1px solid rgba(244, 63, 94, 0.28) !important;
+  color: #fda4af !important;
+  border-radius: var(--uni-radius-pill) !important;
+  text-transform: none !important;
 }
-.theme-unicorn .btn-ghost:hover,
-.theme-unicorn .btn-quiet:hover,
-.theme-unicorn .btn-secondary:hover,
-.theme-unicorn button.border-rule:hover,
-.theme-unicorn button.border-zinc-700:hover {
-  background-color: var(--uni-elevated) !important;
-  border-color: rgba(174, 170, 192, 0.8) !important;
-  color: var(--uni-chalk) !important;
+.theme-unicorn .btn-danger:hover:not(:disabled) {
+  background: rgba(244, 63, 94, 0.18) !important;
+  border-color: rgba(244, 63, 94, 0.45) !important;
+  color: #ffe4e6 !important;
 }
 
-/* Danger Button */
-.theme-unicorn .btn-danger,
-.theme-unicorn button.text-red-400,
-.theme-unicorn button.text-red-500,
-.theme-unicorn button.border-red-900\/50,
-.theme-unicorn button.bg-red-950\/40 {
-  background-color: transparent !important;
-  border: 1px solid var(--uni-danger) !important;
-  color: var(--uni-danger) !important;
-  border-radius: var(--uni-radius-ctl) !important;
-}
-.theme-unicorn .btn-danger:hover,
-.theme-unicorn button.text-red-400:hover,
-.theme-unicorn button.text-red-500:hover,
-.theme-unicorn button.border-red-900\/50:hover {
-  background-color: rgba(219, 110, 89, 0.1) !important;
-  color: var(--uni-danger) !important;
-}
-
-/* Inputs & Textareas (Rule 7) */
+/* =========================================================================
+   Unified Inputs, Selects, Textareas & Switches
+   ========================================================================= */
 .theme-unicorn input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
 .theme-unicorn textarea,
 .theme-unicorn select,
-.theme-unicorn .input-field,
-.theme-unicorn input.bg-zinc-800,
-.theme-unicorn select.bg-zinc-800 {
-  background-color: var(--uni-card) !important;
-  border: 1px solid var(--uni-fog) !important;
-  color: var(--uni-pearl) !important;
+.theme-unicorn .input-field {
+  background-color: rgba(0, 0, 0, 0.34) !important;
+  border: 1px solid rgba(255, 255, 255, 0.11) !important;
+  color: #ffffff !important;
   border-radius: var(--uni-radius-ctl) !important;
   outline: none !important;
+  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease !important;
+}
+.theme-unicorn select option {
+  background-color: #14151e;
+  color: #ffffff;
 }
 .theme-unicorn input::placeholder,
 .theme-unicorn textarea::placeholder,
 .theme-unicorn .input-field::placeholder {
-  color: var(--uni-ash) !important;
+  color: rgba(255, 255, 255, 0.36) !important;
   opacity: 1 !important;
 }
 .theme-unicorn input:focus:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
 .theme-unicorn textarea:focus,
 .theme-unicorn select:focus,
-.theme-unicorn .input-field:focus,
-.theme-unicorn input.bg-zinc-800:focus,
-.theme-unicorn select.bg-zinc-800:focus {
-  border-color: var(--uni-violet) !important;
-  box-shadow: 0 0 0 2px rgba(171, 143, 241, 0.25) !important;
+.theme-unicorn .input-field:focus {
+  background-color: rgba(0, 0, 0, 0.48) !important;
+  border-color: rgba(227, 16, 132, 0.72) !important;
+  box-shadow: 0 0 0 3px rgba(227, 16, 132, 0.18) !important;
 }
 
-/* Violet Accent Replacements (Rule 6) */
-.theme-unicorn .text-brass,
-.theme-unicorn [class*="text-brass"],
-.theme-unicorn .text-emerald-400,
-.theme-unicorn .text-emerald-500,
-.theme-unicorn .text-emerald-600 {
-  color: var(--uni-violet) !important;
-}
-.theme-unicorn .text-brass:hover,
-.theme-unicorn [class*="text-brass"]:hover,
-.theme-unicorn .hover\:text-emerald-400:hover,
-.theme-unicorn .hover\:text-emerald-300:hover {
-  color: var(--uni-iris) !important;
-}
-.theme-unicorn .border-brass,
-.theme-unicorn [class*="border-brass"],
-.theme-unicorn .border-emerald-500,
-.theme-unicorn .border-emerald-600 {
-  border-color: var(--uni-violet) !important;
-}
-.theme-unicorn .ring-brass,
-.theme-unicorn [class*="ring-brass"],
-.theme-unicorn .ring-emerald-500 {
-  --tw-ring-color: var(--uni-violet) !important;
-}
-
-/* Links (Rule 6) */
-.theme-unicorn a:not(.no-underline) {
-  text-decoration: none !important;
-  border-bottom: 1px solid var(--uni-violet);
-  color: var(--uni-chalk);
-  transition: border-color 0.15s ease, color 0.15s ease;
-}
-.theme-unicorn a:not(.no-underline):hover {
-  border-bottom-color: var(--uni-iris);
-  color: var(--uni-chalk);
-}
-.theme-unicorn a.no-underline,
-.theme-unicorn a.no-underline:hover {
-  text-decoration: none !important;
-  border-bottom: none !important;
-}
-
-/* Checkbox and Radio (Rule 6) */
 .theme-unicorn input[type="checkbox"],
-.theme-unicorn input[type="radio"] {
-  accent-color: var(--uni-violet) !important;
+.theme-unicorn input[type="radio"],
+.theme-unicorn input[type="range"] {
+  accent-color: var(--uni-pink) !important;
 }
 
-/* Semantic Badges & Status */
-.theme-unicorn .badge-ok {
-  background-color: var(--uni-card) !important;
-  border: 1px solid rgba(117, 179, 133, 0.4) !important;
-  color: var(--uni-success) !important;
-  border-radius: var(--uni-radius-ctl) !important;
+/* Apple-style Pill Switches */
+.theme-unicorn button[role="switch"] {
+  border-radius: 9999px !important;
+  transition: background-color 220ms var(--uni-ease-spring) !important;
 }
-.theme-unicorn .badge-danger {
-  background-color: var(--uni-card) !important;
-  border: 1px solid rgba(219, 110, 89, 0.4) !important;
-  color: var(--uni-danger) !important;
-  border-radius: var(--uni-radius-ctl) !important;
+.theme-unicorn button[role="switch"][aria-checked="true"] {
+  background-color: var(--uni-pink) !important;
 }
-.theme-unicorn .badge-brass {
-  background-color: var(--uni-card) !important;
-  border: 1px solid rgba(171, 143, 241, 0.4) !important;
-  color: var(--uni-violet) !important;
-  border-radius: var(--uni-radius-ctl) !important;
+.theme-unicorn button[role="switch"][aria-checked="false"] {
+  background-color: rgba(255, 255, 255, 0.16) !important;
 }
-
-/* Modals Everywhere */
-.theme-unicorn .fixed.inset-0[class*="bg-black"] {
-  background-color: rgba(8, 8, 10, 0.7) !important;
-}
-.theme-unicorn .fixed.inset-0 .bg-zinc-900,
-.theme-unicorn .fixed.inset-0 .bg-paper,
-.theme-unicorn .fixed.inset-0 .bg-paper2,
-.theme-unicorn .fixed.inset-0 [role="dialog"] > div {
-  background-color: var(--uni-panel) !important;
-  border: 1px solid rgba(174, 170, 192, 0.18) !important;
-  border-radius: 10px !important;
-  box-shadow: rgba(0, 0, 0, 0.4) 0 2px 4px -1.5px !important;
-}
-
-/* Hero Background Glow */
-.theme-unicorn .uni-aurora-glow {
-  display: none !important;
+.theme-unicorn button[role="switch"] > span {
+  border-radius: 9999px !important;
+  background-color: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
 /* =========================================================================
-   EDITOR TAB SPECIFIC RESTYLING
+   Semantic Pill Badges & Links
    ========================================================================= */
-
-/* Editor Root Background */
-.theme-unicorn [data-tile-id] {
-  background-color: var(--uni-void);
+.theme-unicorn .badge-ok,
+.theme-unicorn .badge-warn,
+.theme-unicorn .badge-danger,
+.theme-unicorn .badge-brass,
+.theme-unicorn .badge-float {
+  border-radius: 9999px !important;
+  backdrop-filter: blur(12px);
+}
+.theme-unicorn .badge-ok {
+  background: rgba(52, 211, 153, 0.12) !important;
+  border: 1px solid rgba(52, 211, 153, 0.28) !important;
+  color: #6ee7b7 !important;
+}
+.theme-unicorn .badge-warn {
+  background: rgba(251, 191, 36, 0.12) !important;
+  border: 1px solid rgba(251, 191, 36, 0.28) !important;
+  color: #fcd34d !important;
+}
+.theme-unicorn .badge-danger {
+  background: rgba(244, 63, 94, 0.12) !important;
+  border: 1px solid rgba(244, 63, 94, 0.28) !important;
+  color: #fda4af !important;
+}
+.theme-unicorn .badge-brass {
+  background: rgba(227, 16, 132, 0.14) !important;
+  border: 1px solid rgba(227, 16, 132, 0.32) !important;
+  color: #ff7ac0 !important;
 }
 
-/* Main Cards: Left card, Player card, Properties card, Timeline card */
+.theme-unicorn a:not(.no-underline):not(.btn-brand-accent):not(.btn-ghost):not(.btn-primary) {
+  text-decoration: none;
+  color: #ffffff;
+  transition: color 150ms ease, opacity 150ms ease;
+}
+
+/* =========================================================================
+   Modals & Dialog Sheets — Dim Scrim + Frosted Thick Surface
+   ========================================================================= */
+.theme-unicorn .fixed.inset-0[class*="bg-black"] {
+  background-color: rgba(6, 7, 12, 0.68) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.theme-unicorn .fixed.inset-0 [role="dialog"] > div,
+.theme-unicorn .fixed.inset-0 > [role="dialog"] {
+  background: rgba(18, 19, 28, 0.90) !important;
+  backdrop-filter: blur(32px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.11) !important;
+  border-top-color: rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+/* =========================================================================
+   Video Editor Tab — Cohesive Translucent Panels + Crisp Timeline
+   ========================================================================= */
+.theme-unicorn [data-tile-id] {
+  background-color: transparent;
+}
 .theme-unicorn [data-tile-id] > div.bg-zinc-900,
 .theme-unicorn [data-tile-id] > div.rounded-xl {
-  background-color: var(--uni-panel) !important;
-  border: 1px solid rgba(174, 170, 192, 0.18) !important;
-  border-radius: 10px !important;
-  box-shadow: none !important;
+  background: rgba(16, 17, 25, 0.78) !important;
+  backdrop-filter: blur(22px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  border-radius: 16px !important;
 }
-
-/* Panel Card Headers */
-.theme-unicorn div.h-10.border-b.border-zinc-800,
-.theme-unicorn div.h-10.bg-zinc-900 {
-  background-color: var(--uni-panel) !important;
-  border-color: rgba(174, 170, 192, 0.18) !important;
-}
-.theme-unicorn div.h-10.border-b.border-zinc-800 span {
-  color: var(--uni-pearl) !important;
-}
-
-/* Left Rail */
-.theme-unicorn .w-\[92px\] {
-  background-color: var(--uni-panel) !important;
-  border-color: rgba(174, 170, 192, 0.18) !important;
-}
-.theme-unicorn .w-\[92px\] button {
-  color: var(--uni-fog) !important;
-  border-radius: 3px !important;
-}
-.theme-unicorn .w-\[92px\] button svg {
-  color: var(--uni-fog) !important;
-}
-.theme-unicorn .w-\[92px\] button span {
-  color: var(--uni-fog) !important;
-}
-.theme-unicorn .w-\[92px\] button.bg-emerald-950\/60,
-.theme-unicorn .w-\[92px\] button[class*="emerald"] {
-  background-color: var(--uni-elevated) !important;
-  border-left: 2px solid var(--uni-violet) !important;
-  border-radius: 0 3px 3px 0 !important;
-}
-.theme-unicorn .w-\[92px\] button.bg-emerald-950\/60 svg,
-.theme-unicorn .w-\[92px\] button[class*="emerald"] svg,
-.theme-unicorn .w-\[92px\] button.bg-emerald-950\/60 span,
-.theme-unicorn .w-\[92px\] button[class*="emerald"] span {
-  color: var(--uni-chalk) !important;
-}
-
-/* Media, Text, Effects, Transitions, Graphics, and AI cards */
-.theme-unicorn .bg-zinc-850,
-.theme-unicorn .bg-zinc-800\/50,
-.theme-unicorn .bg-zinc-800\/60,
-.theme-unicorn div.grid button.rounded-xl:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
-.theme-unicorn div.space-y-2 > div.rounded-xl {
-  background-color: var(--uni-card) !important;
-  border: 1px solid rgba(174, 170, 192, 0.18) !important;
-  border-radius: 10px !important;
-  color: var(--uni-pearl) !important;
-}
-.theme-unicorn .bg-zinc-850:hover,
-.theme-unicorn .bg-zinc-800\/50:hover,
-.theme-unicorn .bg-zinc-800\/60:hover,
-.theme-unicorn div.grid button.rounded-xl:hover:not([data-tutorial="generate"]):not(.btn-generate-clips):not(.btn-brand-accent),
-.theme-unicorn div.space-y-2 > div.rounded-xl:hover {
-  background-color: var(--uni-elevated) !important;
-}
-.theme-unicorn div.grid button.ring-2.ring-emerald-500,
-.theme-unicorn div.grid button.border-emerald-500.bg-emerald-950\/40,
-.theme-unicorn button.ring-emerald-500 {
-  border: 1px solid var(--uni-violet) !important;
-  box-shadow: none !important;
-  background-color: var(--uni-elevated) !important;
-}
-
-/* Player Panel */
-.theme-unicorn span[title="Player ready"] {
-  background-color: var(--uni-violet) !important;
-}
-.theme-unicorn .bg-zinc-950.flex.items-center.justify-center {
-  background-color: var(--uni-void) !important;
-}
-/* Active Stage Tool toggles (Fit, 100%, 9:16, snap, loop) */
-.theme-unicorn button.text-emerald-400.bg-emerald-950\/60 {
-  background-color: transparent !important;
-  border: 1px solid var(--uni-violet) !important;
-  color: var(--uni-violet) !important;
-}
-.theme-unicorn button.text-emerald-400.bg-emerald-950\/60 svg {
-  color: var(--uni-violet) !important;
-}
-/* Round Play Button */
-.theme-unicorn button.w-8.h-8.rounded-full.bg-emerald-600 {
-  background-color: var(--uni-chalk) !important;
-  color: var(--uni-void) !important;
-  border-radius: 9999px !important;
-  box-shadow: #31313a 0 -1px 0 0 !important;
-  border: none !important;
-  width: 32px !important;
-  height: 32px !important;
-  padding: 0 !important;
-}
-.theme-unicorn button.w-8.h-8.rounded-full.bg-emerald-600:hover {
-  background-color: rgb(200, 197, 205) !important;
-}
-.theme-unicorn button.w-8.h-8.rounded-full.bg-emerald-600 svg {
-  color: var(--uni-void) !important;
-}
-
-/* Text Overlay handles and bounds */
-.theme-unicorn .ring-2.ring-emerald-500.pointer-events-none {
-  border: 2px solid var(--uni-violet) !important;
-  outline: none !important;
-  box-shadow: none !important;
-}
-.theme-unicorn .ring-2.ring-emerald-500.pointer-events-none > span {
-  background-color: var(--uni-chalk) !important;
-  border: 1px solid var(--uni-violet) !important;
-  border-radius: 3px !important;
-  width: 10px !important;
-  height: 10px !important;
-}
-/* Active snapping guide lines */
-.theme-unicorn div.bg-emerald-500.z-50.pointer-events-none {
-  background-color: var(--uni-violet) !important;
-  opacity: 0.7 !important;
-}
-.theme-unicorn div.bg-emerald-500.z-50.pointer-events-none > div {
-  background-color: var(--uni-violet) !important;
-}
-
-/* Timeline */
-.theme-unicorn .h-10.border-b.border-zinc-800.bg-zinc-900,
-.theme-unicorn div.w-\[170px\].bg-zinc-900,
-.theme-unicorn div.h-6.bg-zinc-900\/90 {
-  background-color: var(--uni-panel) !important;
-  border-color: rgba(174, 170, 192, 0.18) !important;
-}
-/* Alternating lane backgrounds */
-.theme-unicorn div[data-lane-track-id]:nth-child(odd) {
-  background-color: var(--uni-void) !important;
-  border-color: rgba(174, 170, 192, 0.18) !important;
-  border-radius: 3px !important;
-}
-.theme-unicorn div[data-lane-track-id]:nth-child(even) {
-  background-color: var(--uni-panel) !important;
-  border-color: rgba(174, 170, 192, 0.18) !important;
-  border-radius: 3px !important;
-}
-/* Playhead */
-.theme-unicorn .pointer-events-none > .cursor-ew-resize.bg-emerald-500,
-.theme-unicorn .pointer-events-none > div.w-0\.5.bg-emerald-500 {
-  background-color: var(--uni-chalk) !important;
-}
-/* Timeline zoom slider */
-.theme-unicorn input[aria-label="Timeline zoom"] {
-  background-color: var(--uni-iron) !important;
-  accent-color: var(--uni-violet) !important;
-  border-radius: 3px !important;
-}
-
-/* Timeline Clips */
 .theme-unicorn [data-timeline-clip] {
-  background-color: var(--uni-card) !important;
-  border: 1px solid rgba(174, 170, 192, 0.18) !important;
-  border-radius: 3px !important;
-  color: var(--uni-pearl) !important;
+  background: rgba(255, 255, 255, 0.07) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 7px !important;
+  color: rgba(255, 255, 255, 0.88) !important;
   position: absolute;
 }
 .theme-unicorn [data-timeline-clip]::before {
@@ -635,146 +446,43 @@ button.btn-brand-accent:disabled {
   top: 0;
   bottom: 0;
   width: 3px;
+  border-radius: 7px 0 0 7px;
   z-index: 15;
 }
 .theme-unicorn [data-timeline-clip][data-timeline-clip-type="video"]::before {
-  background-color: var(--uni-violet);
+  background-color: var(--uni-pink);
 }
 .theme-unicorn [data-timeline-clip][data-timeline-clip-type="audio"]::before {
-  background-color: var(--uni-fog);
+  background-color: #34d399;
 }
 .theme-unicorn [data-timeline-clip][data-timeline-clip-type="text"]::before {
-  background-color: var(--uni-chalk);
+  background-color: #ffffff;
 }
 .theme-unicorn [data-timeline-clip][data-timeline-clip-type="overlay"]::before,
 .theme-unicorn [data-timeline-clip][data-timeline-clip-type="shape"]::before {
-  background-color: var(--uni-iris);
-}
-.theme-unicorn [data-timeline-clip].ring-emerald-500,
-.theme-unicorn [data-timeline-clip].border-emerald-500 {
-  outline: 1px solid var(--uni-violet) !important;
-  box-shadow: 0 0 0 2px rgba(171, 143, 241, 0.35) !important;
-  border-color: var(--uni-violet) !important;
-}
-.theme-unicorn [data-timeline-clip] .cursor-ew-resize > div {
-  width: 2px !important;
-  background-color: var(--uni-chalk) !important;
-}
-.theme-unicorn [data-timeline-clip] span {
-  color: var(--uni-pearl) !important;
-}
-
-/* Properties / Inspector */
-.theme-unicorn button.font-semibold:has(> svg.transition-transform) {
-  font-size: 12px !important;
-  text-transform: uppercase !important;
-  color: var(--uni-fog) !important;
-}
-.theme-unicorn input[type="range"] {
-  background-color: var(--uni-iron) !important;
-  accent-color: var(--uni-violet) !important;
-  border-radius: 3px !important;
-}
-.theme-unicorn button[role="switch"] {
-  border-radius: 3px !important;
-}
-.theme-unicorn button[role="switch"][aria-checked="true"],
-.theme-unicorn button[role="switch"].bg-emerald-600 {
-  background-color: var(--uni-violet) !important;
-}
-.theme-unicorn button[role="switch"][aria-checked="false"],
-.theme-unicorn button[role="switch"].bg-zinc-700 {
-  background-color: var(--uni-iron) !important;
-}
-.theme-unicorn button[role="switch"] > span {
-  border-radius: 2px !important;
-  background-color: var(--uni-void) !important;
+  background-color: var(--uni-violet);
 }
 
 /* =========================================================================
-   Custom Brand Accent #e31084 - Universal Final Override
+   Accessibility: Reduced Transparency & Reduced Motion (Apple Design §14)
    ========================================================================= */
-.theme-unicorn button[data-tutorial="generate"],
-.theme-unicorn button.btn-generate-clips,
-.theme-unicorn div.grid button.btn-generate-clips,
-.theme-unicorn div.grid button[data-tutorial="generate"],
-.theme-unicorn .btn-brand-accent,
-.theme-unicorn button.btn-brand-accent,
-.theme-unicorn a.btn-brand-accent,
-button.btn-generate-clips,
-button.btn-brand-accent,
-a.btn-brand-accent {
-  background-color: #e31084 !important;
-  background: #e31084 !important;
-  color: #ffffff !important;
-  border: 1px solid #e31084 !important;
-  box-shadow: 0 4px 16px 0 rgba(227, 16, 132, 0.4) !important;
-  opacity: 1 !important;
+@media (prefers-reduced-transparency: reduce) {
+  .theme-unicorn .card,
+  .theme-unicorn .glass-panel,
+  .theme-unicorn .app-sidebar,
+  .theme-unicorn .bg-paper2,
+  .theme-unicorn [role="menu"],
+  .theme-unicorn [role="listbox"],
+  .theme-unicorn [role="dialog"] > div {
+    background: #14151e !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
 }
 
-.theme-unicorn button[data-tutorial="generate"]:hover,
-.theme-unicorn button.btn-generate-clips:hover,
-.theme-unicorn div.grid button.btn-generate-clips:hover,
-.theme-unicorn div.grid button[data-tutorial="generate"]:hover,
-.theme-unicorn .btn-brand-accent:hover,
-.theme-unicorn button.btn-brand-accent:hover,
-.theme-unicorn a.btn-brand-accent:hover,
-button.btn-generate-clips:hover,
-button.btn-brand-accent:hover,
-a.btn-brand-accent:hover {
-  background-color: #c80d73 !important;
-  background: #c80d73 !important;
-  border-color: #c80d73 !important;
-  color: #ffffff !important;
+@media (prefers-reduced-motion: reduce) {
+  .theme-unicorn button:active,
+  .theme-unicorn .card-hover:hover {
+    transform: none !important;
+  }
 }
-
-.theme-unicorn button[data-tutorial="generate"]:disabled,
-.theme-unicorn button.btn-generate-clips:disabled,
-.theme-unicorn div.grid button.btn-generate-clips:disabled,
-.theme-unicorn div.grid button[data-tutorial="generate"]:disabled,
-.theme-unicorn .btn-brand-accent:disabled,
-.theme-unicorn button.btn-brand-accent:disabled,
-button.btn-generate-clips:disabled,
-button.btn-brand-accent:disabled {
-  background-color: #e31084 !important;
-  background: #e31084 !important;
-  border-color: #e31084 !important;
-  color: #ffffff !important;
-  opacity: 0.8 !important;
-  cursor: not-allowed !important;
-}
-
-/* Ensure Auto Shorts and brand accent buttons are always brand pink background with pure white text and icon */
-.theme-unicorn .btn-brand-accent,
-.theme-unicorn button.btn-brand-accent,
-.theme-unicorn div.grid button.btn-brand-accent,
-.btn-brand-accent,
-button.btn-brand-accent {
-  background-color: #e31084 !important;
-  background: #e31084 !important;
-  color: #ffffff !important;
-  border-color: #e31084 !important;
-  opacity: 1 !important;
-}
-
-.theme-unicorn .btn-brand-accent *,
-.theme-unicorn button.btn-brand-accent *,
-.theme-unicorn div.grid button.btn-brand-accent *,
-.theme-unicorn .btn-brand-accent span,
-.theme-unicorn button.btn-brand-accent span,
-.theme-unicorn div.grid button.btn-brand-accent span,
-.theme-unicorn .btn-brand-accent svg,
-.theme-unicorn button.btn-brand-accent svg,
-.theme-unicorn div.grid button.btn-brand-accent svg,
-.btn-brand-accent *,
-button.btn-brand-accent *,
-.btn-brand-accent span,
-button.btn-brand-accent span,
-.btn-brand-accent svg,
-button.btn-brand-accent svg {
-  color: #ffffff !important;
-  fill: #ffffff !important;
-  stroke: #ffffff !important;
-  opacity: 1 !important;
-}
-
