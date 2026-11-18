@@ -2248,8 +2248,8 @@ function App() {
 
           {/* View: Live Clipper */}
           {activeTab === 'liveclipper' && (
-            <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
-              <div className="max-w-6xl mx-auto p-4 sm:p-6 md:p-8">
+            <div className="h-full min-h-0 animate-fade">
+              <div className="h-full min-h-0 p-2 sm:p-4">
                 <LiveClipperTab
                   onOpenInEditor={() => {
                     setActiveTab('editor');

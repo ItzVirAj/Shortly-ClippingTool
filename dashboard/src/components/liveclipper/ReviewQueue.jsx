@@ -113,66 +113,14 @@ export default function ReviewQueue({
   };
 
   return (
-    <div className="bg-paper2/50 border border-white/10 rounded-2xl p-5 space-y-4 backdrop-blur-xl shadow-xl">
-      {/* Header and Filter Tabs */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
-        <div className="flex items-center gap-2">
-          <Scissors size={18} className="text-brass" />
-          <h3 className="font-semibold text-sm text-ink font-mono uppercase tracking-wider">
-            Clip Review Queue
-          </h3>
-          {pendingCount > 0 && (
-            <span className="px-2 py-0.5 rounded-full text-micro font-mono font-bold bg-brass text-brassink">
-              {pendingCount} new
-            </span>
-          )}
-        </div>
-
-        {/* Filters (Apple Segmented Picker) */}
-        <div className="flex items-center gap-1 bg-black/25 backdrop-blur-md p-1 rounded-xl border border-white/10 text-micro font-mono">
-          <button
-            type="button"
-            onClick={() => setFilter('pending')}
-            className={`px-3 py-1 rounded-lg transition-all duration-200 cursor-pointer active:scale-95 ${
-              filter === 'pending' ? 'bg-white/10 text-white border border-white/15 font-semibold shadow-xs' : 'text-muted hover:text-ink border border-transparent'
-            }`}
-          >
-            Pending ({pendingCount})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilter('approved')}
-            className={`px-3 py-1 rounded-lg transition-all duration-200 cursor-pointer active:scale-95 ${
-              filter === 'approved' ? 'bg-white/10 text-white border border-white/15 font-semibold shadow-xs' : 'text-muted hover:text-ink border border-transparent'
-            }`}
-          >
-            In Pipeline ({approvedCount})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilter('all')}
-            className={`px-3 py-1 rounded-lg transition-all duration-200 cursor-pointer active:scale-95 ${
-              filter === 'all' ? 'bg-white/10 text-white border border-white/15 font-semibold shadow-xs' : 'text-muted hover:text-ink border border-transparent'
-            }`}
-          >
-            All ({items.length})
-          </button>
-        </div>
+    <div>
+      <header className="lc-heading"><div><h2>Captured clips</h2><p>Preview highlights and choose which clips to edit.</p></div></header>
+      <div className="lc-segment lc-monitor">
+        {[['pending', 'Pending', pendingCount], ['approved', 'In pipeline', approvedCount], ['all', 'All clips', items.length]].map(([key, label, count]) =>
+          <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)}>{label} · {count}</button>)}
       </div>
-
-      {/* Cards List */}
       {filteredItems.length === 0 ? (
-        <div className="py-12 flex flex-col items-center justify-center text-center text-muted gap-2 font-mono text-xs">
-          <Scissors size={28} className="opacity-40" />
-          <p>
-            {filter === 'pending'
-              ? 'No clips currently awaiting review.'
-              : 'No clips match this filter.'}
-          </p>
-          <p className="text-micro text-muted/70">
-            Detected chat reaction moments will automatically populate here as raw video cuts.
-          </p>
-        </div>
+        <p className="lc-empty">{filter === 'pending' ? 'No clips awaiting review.' : 'No clips match this filter.'}</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredItems.map((item) => {
