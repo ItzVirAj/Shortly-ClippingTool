@@ -1,7 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, Loader2 } from 'lucide-react';
-export default function LiveSessionPanel({ session, onStop, isPaused, onTogglePause }) {
+import { AlertTriangle, Camera, FlipHorizontal2, Loader2 } from 'lucide-react';
+import { getApiUrl } from '../../config';
+import WebcamBoxPicker from '../WebcamBoxPicker';
+export default function LiveSessionPanel({
+  session,
+  onStop,
+  isPaused,
+  onTogglePause,
+  mirrorVideo = false,
+  onToggleMirror,
+  webcamMode = 'auto',
+  webcamBox = null,
+  onUpdateWebcam,
+  totalSpikes,
+  clipsCut,
+  clipsCutting = 0,
+}) {
   const [showStopConfirm, setShowStopConfirm] = useState(false);
+  const [showWebcamDrawer, setShowWebcamDrawer] = useState(false);
+  const [snapshotTick, setSnapshotTick] = useState(() => Date.now());
   const [keepBuffer, setKeepBuffer] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -65,6 +82,45 @@ export default function LiveSessionPanel({ session, onStop, isPaused, onTogglePa
           </p>
         </div>
         <div className="lc-tools">
+          {onUpdateWebcam && (
+            <button
+              type="button"
+              onClick={() => {
+                setSnapshotTick(Date.now());
+                setShowWebcamDrawer((v) => !v);
+              }}
+              aria-pressed={showWebcamDrawer || webcamMode !== 'auto'}
+              title="Set webcam corner or draw an exact tracing box on the live stream"
+              className={
+                showWebcamDrawer || webcamMode !== 'auto'
+                  ? '!border-[#e31084]/50 !bg-[#e31084]/18 !text-pink-100'
+                  : ''
+              }
+            >
+              <Camera size={13} className="inline mr-1.5 -mt-0.5" />
+              {webcamMode === 'custom'
+                ? 'Cam: Box'
+                : webcamMode === 'auto'
+                  ? 'Cam: 4-Corner'
+                  : `Cam: ${webcamMode.replace('_', '-')}`}
+            </button>
+          )}
+          {onToggleMirror && (
+            <button
+              type="button"
+              onClick={onToggleMirror}
+              aria-pressed={mirrorVideo}
+              title="Flip captured videos horizontally before Whisper and subtitles (captions stay normal)"
+              className={
+                mirrorVideo
+                  ? '!border-[#e31084]/50 !bg-[#e31084]/18 !text-pink-100'
+                  : ''
+              }
+            >
+              <FlipHorizontal2 size={13} className="inline mr-1.5 -mt-0.5" />
+              {mirrorVideo ? 'Mirror: On' : 'Mirror: Off'}
+            </button>
+          )}
           <button onClick={onTogglePause}>{isPaused ? 'Resume processing' : 'Pause processing'}</button>
           <button
             disabled={stopping || session.state === 'stopping'}
@@ -78,9 +134,9 @@ export default function LiveSessionPanel({ session, onStop, isPaused, onTogglePa
         {[
           ['Chat', session.chat_state],
           ['Recorder', session.recorder_state],
-          ['Spikes', stats.spikes_total ?? 0],
-          ['Clips cut', stats.clips_cut ?? 0],
-          ['Approved', stats.clips_approved ?? 0],
+          ['Total spikes', totalSpikes ?? stats.spikes_total ?? 0],
+          ['Clips cut', clipsCut ?? stats.clips_cut ?? 0],
+          ['Cutting now', clipsCutting],
           ['Buffer', stats.disk_used_mb == null ? '—' : stats.disk_used_mb + ' MB'],
         ].map(([name, value]) => (
           <div key={name}>
@@ -90,6 +146,17 @@ export default function LiveSessionPanel({ session, onStop, isPaused, onTogglePa
         ))}
       </dl>
       {/* Stop confirmation drawer */}
+      {showWebcamDrawer && onUpdateWebcam && (
+        <div className="mt-3 animate-fade">
+          <WebcamBoxPicker
+            mode={webcamMode}
+            box={webcamBox}
+            previewSrc={session?.id ? getApiUrl(`/api/liveclipper/sessions/${session.id}/snapshot?t=${snapshotTick}`) : null}
+            onRefreshPreview={() => setSnapshotTick(Date.now())}
+            onChange={onUpdateWebcam}
+          />
+        </div>
+      )}
       {showStopConfirm && (
         <div className="p-3.5 rounded-xl bg-black/40 border border-red-500/30 space-y-2.5 animate-fade text-xs font-mono">
           <div className="flex items-center gap-2 text-red-400 font-semibold">

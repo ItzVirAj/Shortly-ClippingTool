@@ -104,13 +104,10 @@ meaning is on the screen, not in the face.
 1. `on_screen`: one line naming what is shown — the app, window, product,
    document, code, chart or on-screen text — as specifically as the frames
    allow (read visible titles and labels).
-2. `viral_hook_text`: max 10 words, in TRANSCRIPT_LANGUAGE. It MUST mention
-   the thing you named in `on_screen` (or the action being done to it: set
-   up, connect, compare, fix, type) AND keep the strongest concrete fact of
-   the clip: a number, a multiplier, a price, a name ("7x faster", "$136 a
-   month", "3,400 stars") from the transcript or the current hook. Never a
-   summary of the video's general topic, never a slogan that would fit any
-   clip of this video, never drop a figure for a vaguer phrase.
+2. `viral_hook_text`: SINGLE LINE, strictly 3 to 4 words (plus optional 1
+   emoji), in TRANSCRIPT_LANGUAGE. Never exceed 4 words and never use line
+   breaks. Keep it punchy and tied to `on_screen` or the key moment in the
+   clip (and relative to the streamer being recorded when known).
 3. `video_title_for_youtube_short`: max 100 chars, same rule, in
    TRANSCRIPT_LANGUAGE, no fake claims.
 
@@ -124,7 +121,7 @@ TRANSCRIPT:
 {transcript}
 
 Return only:
-{{"on_screen": "<one line>", "viral_hook_text": "<max 10 words>", "video_title_for_youtube_short": "<max 100 chars>"}}
+{{"on_screen": "<one line>", "viral_hook_text": "<single line 3-4 words>", "video_title_for_youtube_short": "<max 100 chars>"}}
 """
 
 
@@ -309,7 +306,7 @@ SELECTION:
 
 WRITING RULES for every clip:
 - Title: 40 to 70 characters, specific to what happens in THIS clip. Use concrete details from the transcript or context (numbers, names, objects, actions). No generic advice or lesson formulas ("Why 99% of people...", "The truth about...") unless the clip literally says that. No claim the clip does not deliver.
-- Hook text: at most 10 words, 1 to 2 emojis, taken from what is said or happens in the first seconds.
+- Hook text: SINGLE LINE, strictly 3 to 4 words (plus optional 1 emoji), NEVER longer than 4 words and NEVER multi-line. Make it directly relative to the streamer being recorded (include the streamer's name from CONTEXT when available, e.g. "<Streamer> broke GTA 😱", "<Streamer>'s insane clutch 🔥", "When <Streamer> panics 💀") and tied to the clip's opening moment.
 - Description: 1 to 2 sentences (at most 200 characters) saying what happens, then 3 to 5 hashtags built from the real topic, context, and transcript.
 - Keep profanity out of the title, hook, and description; use a milder word that keeps the meaning.
 - Write in the same language as the transcript ({language}).
@@ -323,7 +320,7 @@ OUTPUT: only a JSON array (one code block is fine), no other text. One object pe
     "source_window_id": string - candidate window identifier or segment id,
     "predicted_score": integer - estimated viral score from 0 to 100,
     "video_title_for_youtube_short": string - specific title (40 to 70 characters) based on concrete events in this clip,
-    "viral_hook_text": string - hook text (at most 10 words, 1 to 2 emojis) from the opening seconds,
+    "viral_hook_text": string - SINGLE LINE punchy hook strictly 3 to 4 words (+ optional 1 emoji) relative to the streamer being recorded,
     "video_description_for_tiktok": string - 1 to 2 sentences (at most 200 characters) plus 3 to 5 relevant hashtags,
     "video_description_for_instagram": string - 1 to 2 sentences (at most 200 characters) plus 3 to 5 relevant hashtags,
     "why": string - brief explanation of why this moment was selected

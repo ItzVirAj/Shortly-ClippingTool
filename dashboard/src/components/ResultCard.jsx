@@ -63,7 +63,7 @@ function formatDuration(clip) {
     return `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
 }
 
-export default function ResultCard({ clip, index, jobId, durable, uploadPostKey, uploadUserId, geminiApiKey, elevenLabsKey, isManaged, onPlay, onPause, onBulkSubtitle, clipCount = 1, bulkProgress, initialState = null, onStateChange, connectedPlatforms = null, onConnectSocials, onEditClip = null, onReframeClip = null, onUpgrade = null }) {
+export default function ResultCard({ clip, index, jobId, durable, uploadPostKey, uploadUserId, geminiApiKey, elevenLabsKey, isManaged, onPlay, onPause, onBulkSubtitle, clipCount = 1, bulkProgress, initialState = null, onStateChange, connectedPlatforms = null, onConnectSocials, onEditClip = null, onReframeClip = null, onUpgrade = null, ytSelected = false, onToggleYtSelect = null, onPushToYouTube = null }) {
     const [showModal, setShowModal] = useState(false);
     // The "why" line is clamped to two lines so cards in a row stay level;
     // when it overflows, a hover (desktop) or tap (touch) shows the whole
@@ -138,7 +138,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 const reader = response.body.getReader();
                 const chunks = [];
                 let received = 0;
-                for (;;) {
+                for (; ;) {
                     const { done, value } = await reader.read();
                     if (done) break;
                     chunks.push(value);
@@ -333,7 +333,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
             .then(data => {
                 if (data && data.durationSec) setClipDuration(data.durationSec);
             })
-            .catch(() => {});
+            .catch(() => { });
     }, [jobId, index]);
 
     // Which platforms the selected profile actually has linked. `null` means
@@ -843,7 +843,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
     const durationReadout = formatDuration(clip);
 
     return (
-        <div className="card overflow-hidden flex flex-col md:flex-row group hover:border-rule2 transition-colors animate-fade md:min-h-[420px]" style={{ animationDelay: `${index * 0.1}s` }}>
+        <div className={`card overflow-hidden flex flex-col md:flex-row group transition-colors animate-fade md:min-h-[420px] ${ytSelected ? '!border-[#e31084] ring-1 ring-[#e31084]/40' : 'hover:border-rule2'}`} style={{ animationDelay: `${index * 0.1}s` }}>
             {/* Left: Video Preview — 9:16 column matching the fixed card height */}
             {/* A full-width 9:16 preview on a phone is ~640px tall on its own,
                 which pushed the title, captions and every action off-screen.
@@ -914,6 +914,25 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                         </span>
                     )}
                 </div>
+
+                {onToggleYtSelect && (
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleYtSelect(index);
+                        }}
+                        aria-pressed={ytSelected}
+                        title={ytSelected ? 'Selected for YouTube push' : 'Tick to select for YouTube push'}
+                        className={`absolute top-3 right-3 inline-flex items-center gap-1 px-2 py-1 rounded-full border backdrop-blur-md text-[10.5px] font-mono font-semibold transition-all active:scale-90 cursor-pointer shadow-sm ${ytSelected
+                            ? 'bg-[#e31084] border-[#ff66b2] text-white'
+                            : 'bg-black/70 border-white/25 text-white/80 hover:text-white hover:border-white/50'
+                            }`}
+                    >
+                        <Check size={11} strokeWidth={3} className={ytSelected ? 'opacity-100' : 'opacity-40'} />
+                        <span>{ytSelected ? 'YT Ticked' : 'YT'}</span>
+                    </button>
+                )}
 
                 {/* Auto Edit Overlay if Processing */}
                 {isEditing && (
@@ -1013,6 +1032,18 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
 
                 {/* Actions Footer */}
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2 mt-auto pt-4 border-t border-rule">
+                    {onPushToYouTube && (
+                        <button
+                            type="button"
+                            onClick={() => onPushToYouTube(index, serverVideoFile)}
+                            className="btn-brand-accent flex flex-col items-center justify-center gap-1 py-2.5 sm:py-2 px-1 rounded-input text-[11px] font-semibold whitespace-nowrap transition-all active:scale-95 cursor-pointer"
+                            title="Edit title, description & emojis and push directly to YouTube"
+                        >
+                            <Youtube size={16} className="shrink-0" />
+                            push to yt
+                        </button>
+                    )}
+
                     {onEditClip && (
                         <button
                             onClick={() => onEditClip(index)}

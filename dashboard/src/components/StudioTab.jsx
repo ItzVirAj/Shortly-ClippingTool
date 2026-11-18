@@ -18,8 +18,8 @@ export default function StudioTab({
   onModeChange,
 }) {
   return (
-    <div className="h-full overflow-hidden animate-fade relative z-10 selection:bg-purple-500/30 flex flex-col">
-      <div className="w-full max-w-6xl mx-auto px-4 sm:px-8 pt-4 pb-3 sm:pt-6 sm:pb-3 flex flex-col justify-between h-full space-y-4 sm:space-y-5">
+    <div className="h-full overflow-y-auto custom-scrollbar animate-fade relative z-10 selection:bg-purple-500/30 flex flex-col">
+      <div className="w-full max-w-6xl mx-auto px-4 sm:px-8 pt-4 pb-6 sm:pt-6 sm:pb-8 flex flex-col justify-between min-h-full space-y-4 sm:space-y-5">
         {/* Apple-Style Glass Header Banner */}
         <header className="relative flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-4 border-b border-white/[0.08] shrink-0">
           <div className="space-y-2">

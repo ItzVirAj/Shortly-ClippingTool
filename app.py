@@ -5035,6 +5035,9 @@ async def process_endpoint(
     topic: Optional[str] = Form(None),
     notes: Optional[str] = Form(None),
     platform: Optional[str] = Form(None),
+    mirror_video: Optional[str] = Form(None),
+    webcam_mode: Optional[str] = Form(None),
+    webcam_box: Optional[str] = Form(None),
 ):
     # Handle JSON body manually for URL payload
     content_type = request.headers.get("content-type", "")
@@ -5066,6 +5069,9 @@ async def process_endpoint(
         topic = body.get("topic", topic)
         notes = body.get("notes", notes)
         platform = body.get("platform", platform)
+        mirror_video = body.get("mirror_video", mirror_video)
+        webcam_mode = body.get("webcam_mode", webcam_mode)
+        webcam_box = body.get("webcam_box", webcam_box)
     else:
         ack_flag = str(acknowledged).lower() in ("1", "true", "yes")
         force_low = str(force_low_quality).lower() in ("1", "true", "yes")
@@ -5202,6 +5208,20 @@ async def process_endpoint(
         if auto_hook_style in HOOK_STYLES:
             env["AUTO_HOOK_STYLE"] = auto_hook_style
         print(f"[auto-hook] job={job_id} style={env.get('AUTO_HOOK_STYLE', 'classic')}")
+
+    mirror_flag = (mirror_video is True) or (str(mirror_video).strip().lower() in ("1", "true", "yes"))
+    if mirror_flag:
+        env["MIRROR_VIDEO"] = "1"
+        print(f"[mirror] job={job_id} enabled")
+
+    if webcam_mode is not None or webcam_box is not None:
+        import camera_inset as _ci
+        norm_wc_mode = _ci.normalize_webcam_mode(webcam_mode)
+        norm_wc_box = _ci.parse_webcam_box(webcam_box)
+        env["WEBCAM_MODE"] = norm_wc_mode
+        if norm_wc_box is not None:
+            env["WEBCAM_BOX"] = json.dumps(norm_wc_box)
+        print(f"[webcam] job={job_id} mode={norm_wc_mode} box={norm_wc_box}")
 
     # Manual generation controls (discussion #65): optional clip-count target
     # and duration band, forwarded to the selection prompts via the same env
@@ -6709,7 +6729,8 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
             captioner=_recut_captioner(clip),
             # Trim the source's own subtitles only when ours go back on.
             subtitle_band=(data.get('source_subtitle_band')
-                           if v_transcript else None))
+                           if v_transcript else None),
+            mirror_video=bool(data.get('mirror_video')))
 
     try:
         loop = asyncio.get_event_loop()
@@ -7243,7 +7264,8 @@ async def _reframe_locked(req: ReframeRequest, request: Request, job, overrides)
             captioner=_recut_captioner(clip),
             # Trim the source's own subtitles only when ours go back on.
             subtitle_band=(data.get('source_subtitle_band')
-                           if v_transcript else None))
+                           if v_transcript else None),
+            mirror_video=bool(data.get('mirror_video')))
 
     try:
         loop = asyncio.get_event_loop()

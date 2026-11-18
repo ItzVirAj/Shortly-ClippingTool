@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, Activity, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Bot, Users, Smartphone, ExternalLink, Copy, CheckCircle2, Mail, Loader2, Download, Menu, Lock, Rocket, Film, Palette, ArrowLeft, AlertCircle } from 'lucide-react';
+import { Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, Activity, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Bot, Users, Smartphone, ExternalLink, Copy, CheckCircle2, Mail, Loader2, Download, Menu, Lock, Rocket, Film, Palette, ArrowLeft, AlertCircle, Tv } from 'lucide-react';
 import KeyInput from './components/KeyInput';
 import MediaInput from './components/MediaInput';
 import StudioTab from './components/StudioTab';
@@ -33,10 +33,12 @@ import HistoryTab from './components/HistoryTab';
 import PublishingTab from './components/PublishingTab';
 import AutopilotTab from './components/AutopilotTab';
 import LiveClipperTab from './components/liveclipper/LiveClipperTab';
+import LiveStreamTab from './components/liveclipper/LiveStreamTab';
 import ProfileMenu from './components/ProfileMenu';
 import Sidebar from './components/Sidebar';
 import Modal from './components/ui/Modal';
 import YouTubeSetupModal from './components/YouTubeSetupModal';
+import PushToYouTubeModal from './components/PushToYouTubeModal';
 import { useAuth } from './contexts/AuthContext';
 import { apiFetch, apiJson, QuotaError, QUOTA_WALL_EVENT } from './lib/api';
 import { track } from './lib/analytics';
@@ -445,6 +447,11 @@ function App() {
   // The job a restored session was polling is no longer on the server.
   const [jobGone, setJobGone] = useState(false);
   const [showScheduleWeek, setShowScheduleWeek] = useState(false);
+  // Direct YouTube push (tickmarks on Studio results + auto-push automation)
+  const [selectedStudioClips, setSelectedStudioClips] = useState(() => new Set());
+  const [studioPushClips, setStudioPushClips] = useState([]);
+  const [autoPushBanner, setAutoPushBanner] = useState(null); // { kind: 'info'|'ok'|'err', text: string }
+  const pendingAutoPushRef = useRef(null);
   // Clip editor overlay: index of the clip being edited, or null.
   const [editingClip, setEditingClip] = useState(null);
   const [reframingClip, setReframingClip] = useState(null);
@@ -1263,6 +1270,10 @@ function App() {
         // but the dashboard always states the user's choice.
         auto_hook: data.autoHook ? '1' : '0',
         auto_hook_style: data.autoHook ? (data.autoHookStyle || 'pill') : null,
+        streamer: data.streamer || null,
+        mirror_video: data.mirrorVideo ? '1' : '0',
+        webcam_mode: data.webcamMode && data.webcamMode !== 'auto' ? data.webcamMode : null,
+        webcam_box: data.webcamMode === 'custom' && data.webcamBox ? JSON.stringify(data.webcamBox) : null,
         // 'auto' is the server default, so only a deliberate choice travels.
         layouts: data.layout && data.layout !== 'auto' ? data.layout : null,
         // Set when the user took the quota wall's "clip the first N minutes"
@@ -1317,6 +1328,11 @@ function App() {
       }
 
       setJobId(resData.job_id);
+      setSelectedStudioClips(new Set());
+      setAutoPushBanner(null);
+      pendingAutoPushRef.current = data.autoPushYouTube?.enabled
+        ? { ...data.autoPushYouTube, jobId: resData.job_id }
+        : null;
       setPartialJob(resData.partial || null);
       setFirstVideoJob(!!resData.first_video);
       // The server clipped past the balance on its own (no wall): the first
@@ -1419,6 +1435,78 @@ function App() {
     handleResetRef.current = handleReset;
   });
 
+  const buildStudioPushPayload = useCallback((clipObj, clipIndex, overrideFilename = null) => {
+    const rawUrl = clipObj?.video_url || '';
+    const fname = overrideFilename || rawUrl.split('/').pop() || '';
+    return {
+      clip_id: `${jobId}:${clipIndex}`,
+      job_id: jobId,
+      filename: fname,
+      title: clipObj?.video_title_for_youtube_short || clipObj?.title || `Clip ${clipIndex + 1}`,
+      description: clipObj?.video_description_for_tiktok || clipObj?.video_description_for_instagram || '',
+      video_url: rawUrl,
+    };
+  }, [jobId]);
+
+  const toggleStudioClipSelect = useCallback((clipIndex) => {
+    setSelectedStudioClips((prev) => {
+      const next = new Set(prev);
+      if (next.has(clipIndex)) next.delete(clipIndex);
+      else next.add(clipIndex);
+      return next;
+    });
+  }, []);
+
+  // Studio Auto-Push to YouTube automation when the job finishes rendering
+  useEffect(() => {
+    if (status !== 'complete' || !jobId || !results?.clips?.length) return;
+    const cfg = pendingAutoPushRef.current;
+    if (!cfg || !cfg.enabled || cfg.jobId !== jobId) return;
+    pendingAutoPushRef.current = null;
+
+    const allPayloads = results.clips.map((c, idx) => buildStudioPushPayload(c, idx));
+    if (cfg.mode === 'review') {
+      setSelectedStudioClips(new Set(results.clips.map((_, idx) => idx)));
+      setStudioPushClips(allPayloads);
+      return;
+    }
+
+    // Full automatic direct push to YouTube upload pipeline
+    (async () => {
+      setAutoPushBanner({ kind: 'info', text: `Auto-pushing ${allPayloads.length} clip(s) directly to YouTube…` });
+      try {
+        const pub = await apiJson('/api/publishing');
+        const defs = pub?.defaults || {};
+        const defTags = Array.isArray(defs.tags) ? defs.tags : [];
+        const items = allPayloads.map((p) => ({
+          clip_id: p.clip_id,
+          job_id: p.job_id,
+          filename: p.filename,
+          title: (cfg.title || defs.title || p.title || 'Viral Short 🔥').slice(0, 100),
+          description: (cfg.description || defs.description || p.description || '#Shorts').slice(0, 5000),
+          tags: defTags,
+          privacy: cfg.privacy || 'public',
+          made_for_kids: false,
+          publish_at: null,
+        }));
+        const res = await apiJson('/api/publishing/push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items, auto_start: true }),
+        });
+        setAutoPushBanner({
+          kind: 'ok',
+          text: `Auto-pushed ${res?.count || items.length} clip(s) directly to YouTube! Check Publishing for live status.`,
+        });
+      } catch (err) {
+        setAutoPushBanner({
+          kind: 'err',
+          text: `Auto-push to YouTube failed: ${err?.detail || err?.message || 'Connect YouTube in Settings first.'}`,
+        });
+      }
+    })();
+  }, [status, jobId, results, buildStudioPushPayload]);
+
   // --- UI Components ---
 
   // One nav definition drives all three surfaces: the desktop rail, the mobile
@@ -1431,6 +1519,7 @@ function App() {
     { id: 'ai-agent', ord: '04', icon: Bot, label: 'AI Agent', short: 'agent', byok: true },
     { id: 'ugc-gallery', ord: '05', icon: LayoutGrid, label: 'UGC Gallery', short: 'gallery', primary: true },
     { id: 'liveclipper', ord: '05b', icon: Activity, label: 'Live Clipper', short: 'live', isNew: true, primary: true },
+    { id: 'livestream', ord: '05c', icon: Tv, label: 'Live Stream', short: 'stream', primary: true },
     { id: 'thumbnails', ord: '06', icon: Image, label: 'YouTube Studio', short: 'studio', primary: true },
     { id: 'thumbnail-maker', ord: '06b', icon: Image, label: 'Thumbnail Maker', short: 'thumbs', primary: true },
     { id: 'editor', ord: '07', icon: Film, label: 'Editor', short: 'editor', primary: true },
@@ -2216,7 +2305,10 @@ function App() {
                     <button onClick={() => setShowLogin(true)} className="btn-primary">sign in</button>
                   </div>
                 ) : (
-                  <HistoryTab onReopenProject={restoreProject} />
+                  <HistoryTab
+                    onReopenProject={restoreProject}
+                    onConnectYouTube={() => setShowYouTubeSetupModal(true)}
+                  />
                 )}
               </div>
             </div>
@@ -2256,6 +2348,16 @@ function App() {
                   }}
                 />
               </div>
+            </div>
+          )}
+
+          {/* View: Live Stream (Manual-Only) */}
+          {activeTab === 'livestream' && (
+            <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
+              <LiveStreamTab
+                onOpenInEditor={() => setActiveTab('editor')}
+                onGoToClips={() => setActiveTab('liveclipper')}
+              />
             </div>
           )}
 
@@ -2479,7 +2581,50 @@ function App() {
                     </button>
                   </div>
                   {results?.clips?.length > 0 && status === 'complete' && (
-                    <div className="flex flex-col sm:flex-row sm:justify-end items-stretch sm:items-center gap-2">
+                    <div className="flex flex-wrap sm:justify-end items-center gap-2">
+                      {!billingEnabled && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const allTicked = results.clips.every((_, idx) => selectedStudioClips.has(idx));
+                              if (allTicked) {
+                                setSelectedStudioClips(new Set());
+                              } else {
+                                setSelectedStudioClips(new Set(results.clips.map((_, idx) => idx)));
+                              }
+                            }}
+                            className="btn-ghost px-3 py-2 text-xs"
+                            title="Tick or untick all clips for direct YouTube upload"
+                          >
+                            <Check size={14} />
+                            {results.clips.every((_, idx) => selectedStudioClips.has(idx))
+                              ? 'clear ticks'
+                              : `tick all (${results.clips.length})`}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const idxs = selectedStudioClips.size > 0
+                                ? [...selectedStudioClips].sort((a, b) => a - b)
+                                : results.clips.map((_, idx) => idx);
+                              const chosen = idxs
+                                .filter((idx) => results.clips[idx])
+                                .map((idx) => buildStudioPushPayload(results.clips[idx], idx));
+                              if (chosen.length) setStudioPushClips(chosen);
+                            }}
+                            className="btn-brand-accent inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold cursor-pointer active:scale-95"
+                            title="Edit title, description & emojis and push directly to YouTube"
+                          >
+                            <Youtube size={14} />
+                            <span>
+                              {selectedStudioClips.size > 0
+                                ? `Push to YouTube (${selectedStudioClips.size})`
+                                : 'Push All to YouTube'}
+                            </span>
+                          </button>
+                        </>
+                      )}
                       <button
                         onClick={handleDownloadAll}
                         disabled={downloadingAll}
@@ -2499,6 +2644,29 @@ function App() {
                           schedule week
                         </button>
                       )}
+                    </div>
+                  )}
+                  {autoPushBanner && (
+                    <div
+                      className={`px-3.5 py-2.5 rounded-2xl border text-xs flex items-center justify-between gap-2 animate-fade ${
+                        autoPushBanner.kind === 'ok'
+                          ? 'bg-emerald-500/12 border-emerald-500/30 text-emerald-200'
+                          : autoPushBanner.kind === 'err'
+                            ? 'bg-rose-500/12 border-rose-500/30 text-rose-200'
+                            : 'bg-[#e31084]/12 border-[#e31084]/35 text-pink-100'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        {autoPushBanner.kind === 'info' ? <Loader2 size={13} className="animate-spin" /> : <Youtube size={13} />}
+                        <span>{autoPushBanner.text}</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setAutoPushBanner(null)}
+                        className="opacity-60 hover:opacity-100 cursor-pointer"
+                      >
+                        <X size={13} />
+                      </button>
                     </div>
                   )}
                 </div>
@@ -2653,6 +2821,11 @@ function App() {
                           onBulkSubtitle={handleBulkSubtitles}
                           clipCount={results.clips.length}
                           bulkProgress={bulkSub}
+                          ytSelected={selectedStudioClips.has(i)}
+                          onToggleYtSelect={!billingEnabled ? toggleStudioClipSelect : null}
+                          onPushToYouTube={!billingEnabled ? (idx, serverFile) => {
+                            setStudioPushClips([buildStudioPushPayload(clip, idx, serverFile)]);
+                          } : null}
                         />
                       ))}
                     </div>
@@ -2909,6 +3082,21 @@ function App() {
           plan={plan}
           onActivated={refreshMe}
           onClose={() => setShowTrialUpgrade(false)}
+        />
+      )}
+
+      {studioPushClips.length > 0 && (
+        <PushToYouTubeModal
+          clips={studioPushClips}
+          onClose={() => setStudioPushClips([])}
+          onConnectYouTube={() => setShowYouTubeSetupModal(true)}
+          onSuccess={(pushed) => {
+            setSelectedStudioClips(new Set());
+            setAutoPushBanner({
+              kind: 'ok',
+              text: `Queued ${pushed.length} clip(s) for direct YouTube upload!`,
+            });
+          }}
         />
       )}
 

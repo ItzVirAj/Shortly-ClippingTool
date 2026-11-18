@@ -1,6 +1,6 @@
 import Skipper from './Skipper';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Activity, History, Scissors, Radio, Loader2, Bot, ArrowLeft } from 'lucide-react';
+import { Activity, History, Scissors, Film, Radio, Loader2, Bot, ArrowLeft, Zap, ChevronRight } from 'lucide-react';
 import SkipperPortrait from './SkipperPortrait';
 import './liveDesk.css';
 import { apiJson } from '../../lib/api';
@@ -34,7 +34,7 @@ export default function LiveClipperTab({ onOpenInEditor }) {
   const pollTimerRef = useRef(null);
 
   const [pastItems, setPastItems] = useState([]);
-  const [monitorView, setMonitorView] = useState('feed');
+  const [manualCuts, setManualCuts] = useState([]);
 
   const sessionDurationText = useMemo(() => {
     if (!selectedPastSession?.started_at) return 'N/A';
@@ -144,6 +144,10 @@ export default function LiveClipperTab({ onOpenInEditor }) {
           setHeatmap(seriesData.heatmap);
         }
 
+        if (Array.isArray(seriesData.manual_cuts)) {
+          setManualCuts(seriesData.manual_cuts);
+        }
+
         // C. Live Chat Messages
         if (seriesData.messages && seriesData.messages.length > 0) {
           setLiveMessages((prev) => {
@@ -197,11 +201,11 @@ export default function LiveClipperTab({ onOpenInEditor }) {
     setAudioPeaks([]);
     setHeatmap([]);
     setChatStats({});
-    setMonitorView('feed');
     setPoints([]);
     setSpikes([]);
     setLiveMessages([]);
     setQueueItems([]);
+    setManualCuts([]);
     lastPointTRef.current = 0.0;
     try {
       const sess = await apiJson(`/api/liveclipper/sessions/${newSessionId}`);
@@ -241,12 +245,76 @@ export default function LiveClipperTab({ onOpenInEditor }) {
     }
   };
 
-  async function updateClip(id, action) {
+  const handleToggleMirror = async () => {
+    if (!activeSession) return;
+    const nextVal = !activeSession.config?.mirror_video;
+    setActiveSession((prev) =>
+      prev ? { ...prev, config: { ...prev.config, mirror_video: nextVal } } : prev,
+    );
     try {
-      await apiJson(`/api/liveclipper/queue/${id}/${action}`, { method: 'POST' });
+      await apiJson(`/api/liveclipper/sessions/${activeSession.id}/detector`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mirror_video: nextVal }),
+      });
+    } catch (e) {
+      setActiveSession((prev) =>
+        prev ? { ...prev, config: { ...prev.config, mirror_video: !nextVal } } : prev,
+      );
+      alert(e.detail || 'Could not toggle Mirror Video.');
+    }
+  };
+
+  const handleUpdateWebcam = async ({ webcam_mode: nextMode, webcam_box: nextBox }) => {
+    if (!activeSession) return;
+    const prevMode = activeSession.config?.webcam_mode || 'auto';
+    const prevBox = activeSession.config?.webcam_box || null;
+    setActiveSession((prev) =>
+      prev
+        ? {
+            ...prev,
+            config: {
+              ...prev.config,
+              webcam_mode: nextMode,
+              webcam_box: nextMode === 'custom' ? nextBox : null,
+            },
+          }
+        : prev,
+    );
+    try {
+      await apiJson(`/api/liveclipper/sessions/${activeSession.id}/detector`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          webcam_mode: nextMode,
+          webcam_box: nextMode === 'custom' ? nextBox : null,
+        }),
+      });
+    } catch (e) {
+      setActiveSession((prev) =>
+        prev ? { ...prev, config: { ...prev.config, webcam_mode: prevMode, webcam_box: prevBox } } : prev,
+      );
+      alert(e.detail || 'Could not update webcam box.');
+    }
+  };
+
+  async function updateClip(id, action, options = null) {
+    try {
+      const fetchOpts = { method: 'POST' };
+      if (action === 'approve' && options && typeof options === 'object') {
+        fetchOpts.headers = { 'Content-Type': 'application/json' };
+        fetchOpts.body = JSON.stringify(options);
+      }
+      await apiJson(`/api/liveclipper/queue/${id}/${action}`, fetchOpts);
       const update = (items) =>
         items.map((item) =>
-          item.id === id ? { ...item, status: action === 'approve' ? 'approved' : 'rejected' } : item,
+          item.id === id
+            ? {
+                ...item,
+                status: action === 'approve' ? 'approved' : 'rejected',
+                ...(options && 'mirror_video' in options ? { mirror_video: Boolean(options.mirror_video) } : {}),
+              }
+            : item,
         );
       setQueueItems(update);
       setPastItems(update);
@@ -268,16 +336,31 @@ export default function LiveClipperTab({ onOpenInEditor }) {
     activeSession &&
     ['waiting_for_live', 'connecting', 'recording', 'stopping'].includes(activeSession.state);
   const rate = chatStats.msgs_per_min ?? activeSession?.stats?.msgs_per_min_now ?? 0;
+  const activeSessionClips = queueItems.filter(
+    (item) =>
+      (!activeSession || item.session_id === activeSession.id) &&
+      item.status !== 'rejected' &&
+      item.status !== 'failed',
+  );
+  const totalSpikes = Math.max(spikes.length, activeSession?.stats?.spikes_total ?? 0);
+  const clipsCut = Math.max(activeSessionClips.length, activeSession?.stats?.clips_cut ?? 0);
+  const queueCutting = activeSessionClips.filter((item) =>
+    ['cutting', 'rendering', 'processing', 'editing'].includes(item.status),
+  ).length;
+  const activeManualCuts = manualCuts.filter((c) => c.status === 'waiting' || c.status === 'cutting').length;
+  const clipsCutting = isPaused
+    ? activeManualCuts
+    : Math.max(queueCutting + activeManualCuts, Math.max(0, totalSpikes - clipsCut));
   const destinations = [
     ['live', Radio, 'Session'],
-    ['clips', Scissors, 'Clips'],
+    ['clips', Film, 'Clips'],
     ['history', History, 'History'],
     ['skipper', Bot, 'Skipper'],
   ];
   const review = (items) => (
     <ReviewQueue
       items={items}
-      onApprove={(id) => updateClip(id, 'approve')}
+      onApprove={(id, options) => updateClip(id, 'approve', options)}
       onReject={(id) => updateClip(id, 'reject')}
       onOpenInEditor={onOpenInEditor}
     />
@@ -336,66 +419,145 @@ export default function LiveClipperTab({ onOpenInEditor }) {
           )}
           <section hidden={activeTabSubView !== 'live'}>
             {running ? (
-              <>
+              <div className="space-y-4">
                 <LiveSessionPanel
                   session={activeSession}
                   onStop={handleStopSession}
                   isPaused={isPaused}
                   onTogglePause={handleTogglePause}
+                  mirrorVideo={Boolean(activeSession?.config?.mirror_video)}
+                  onToggleMirror={handleToggleMirror}
+                  webcamMode={activeSession?.config?.webcam_mode || 'auto'}
+                  webcamBox={activeSession?.config?.webcam_box || null}
+                  onUpdateWebcam={handleUpdateWebcam}
+                  totalSpikes={totalSpikes}
+                  clipsCut={clipsCut}
+                  clipsCutting={clipsCutting}
                 />
-                <div className="lc-segment lc-monitor">
-                  {[
-                    ['feed', 'Stream & chat'],
-                    ['signal', 'Signal timeline'],
-                  ].map(([key, label]) => (
-                    <button key={key} aria-pressed={monitorView === key} onClick={() => setMonitorView(key)}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                {monitorView === 'feed' ? (
-                  <LiveFeedPreview
-                    session={activeSession}
-                    messages={liveMessages}
-                    transport={chatStats.chat_transport}
-                    streamRate={chatStats.msgs_per_sec ?? 0}
-                    msgsPerMin={rate}
-                  />
-                ) : (
-                  <LiveChatGraph
-                    points={points}
-                    spikes={spikes}
-                    audioEnergy={audioEnergy}
-                    audioPeaks={audioPeaks}
-                    heatmap={heatmap}
-                    sessionDuration={
-                      activeSession.started_at
-                        ? (Date.now() - new Date(activeSession.started_at).getTime()) / 1000
-                        : 0
-                    }
-                    sessionId={activeSession.id}
-                    detectorConfig={activeSession.config?.detector}
-                    msgsPerMin={rate}
-                    msgsPerSec={chatStats.msgs_per_sec || activeSession?.stats?.msgs_per_sec_now || 0}
-                    onDetectorUpdate={(newCfg) => {
-                      setActiveSession((prev) =>
-                        prev
-                          ? {
-                              ...prev,
-                              config: {
-                                ...prev.config,
-                                detector: {
-                                  ...prev.config?.detector,
-                                  ...newCfg,
-                                },
+                <LiveFeedPreview
+                  session={activeSession}
+                  messages={liveMessages}
+                  transport={chatStats.chat_transport}
+                  streamRate={chatStats.msgs_per_sec ?? 0}
+                  msgsPerMin={rate}
+                />
+                <LiveChatGraph
+                  points={points}
+                  spikes={spikes}
+                  audioEnergy={audioEnergy}
+                  audioPeaks={audioPeaks}
+                  heatmap={heatmap}
+                  sessionDuration={
+                    activeSession.started_at
+                      ? (Date.now() - new Date(activeSession.started_at).getTime()) / 1000
+                      : 0
+                  }
+                  sessionId={activeSession.id}
+                  detectorConfig={activeSession.config?.detector}
+                  msgsPerMin={rate}
+                  msgsPerSec={chatStats.msgs_per_sec || activeSession?.stats?.msgs_per_sec_now || 0}
+                  totalSpikes={totalSpikes}
+                  clipsCut={clipsCut}
+                  clipsCutting={clipsCutting}
+                  onDetectorUpdate={(newCfg) => {
+                    setActiveSession((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            config: {
+                              ...prev.config,
+                              detector: {
+                                ...prev.config?.detector,
+                                ...newCfg,
                               },
-                            }
-                          : prev,
-                      );
-                    }}
-                  />
-                )}
-              </>
+                            },
+                          }
+                        : prev,
+                    );
+                  }}
+                />
+
+                {/* Live Clips Being Cut & Recent Session Cuts */}
+                <div className="rounded-2xl bg-paper2/60 border border-white/10 backdrop-blur-2xl p-4 space-y-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_14px_36px_-16px_rgba(0,0,0,0.45)]">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Scissors size={14} className="text-[#ff66b2]" />
+                      <span className="text-xs font-semibold uppercase tracking-[0.06em] font-mono text-white">
+                        Live Clips &amp; Spikes
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500/12 border border-rose-500/25 text-[11px] font-mono text-rose-200 tabular-nums">
+                        <Zap size={10} className="text-rose-400" />
+                        {totalSpikes} spikes
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/12 border border-emerald-500/25 text-[11px] font-mono text-emerald-200 tabular-nums">
+                        {clipsCut} cut
+                      </span>
+                      {clipsCutting > 0 && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#e31084]/15 border border-[#e31084]/35 text-[11px] font-mono text-pink-200 tabular-nums">
+                          <Loader2 size={10} className="animate-spin text-[#ff66b2]" />
+                          Cutting {clipsCutting}…
+                        </span>
+                      )}
+                    </div>
+                    {activeSessionClips.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTabSubView('clips')}
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-white/[0.07] hover:bg-white/[0.13] border border-white/[0.12] text-xs font-medium text-white/90 transition-colors"
+                      >
+                        <span>Open Clips ({activeSessionClips.length})</span>
+                        <ChevronRight size={13} />
+                      </button>
+                    )}
+                  </div>
+
+                  {activeSessionClips.length === 0 ? (
+                    <p className="text-xs text-muted">
+                      {clipsCutting > 0
+                        ? 'Spike detected — confirming and cutting highlight clip now…'
+                        : 'Watching chat velocity and audio peaks. Detected highlights will appear here as they are cut.'}
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-white/[0.06] rounded-xl bg-black/25 border border-white/[0.06] overflow-hidden">
+                      {activeSessionClips.slice(0, 5).map((clip) => (
+                        <div
+                          key={clip.id}
+                          className="px-3 py-2 flex items-center justify-between gap-3 text-xs hover:bg-white/[0.02] transition-colors"
+                        >
+                          <div className="min-w-0 flex items-center gap-2.5">
+                            <span className="font-medium text-white truncate">
+                              {clip.title || `Highlight @ ${Math.round(clip.start_t || 0)}s`}
+                            </span>
+                            {clip.duration ? (
+                              <span className="text-[11px] font-mono text-muted tabular-nums shrink-0">
+                                {Math.round(clip.duration)}s
+                              </span>
+                            ) : null}
+                            {clip.score ? (
+                              <span className="text-[10.5px] font-mono px-1.5 py-0.5 rounded bg-white/[0.06] text-white/75 tabular-nums shrink-0">
+                                score {Math.round(clip.score)}
+                              </span>
+                            ) : null}
+                          </div>
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10.5px] font-medium border shrink-0 capitalize ${
+                              clip.status === 'skipper'
+                                ? 'bg-[#e31084]/15 border-[#e31084]/30 text-pink-200'
+                                : clip.status === 'approved' || clip.status === 'completed'
+                                  ? 'bg-emerald-500/12 border-emerald-500/25 text-emerald-300'
+                                  : 'bg-white/[0.06] border-white/[0.12] text-white/80'
+                            }`}
+                          >
+                            {clip.status === 'skipper'
+                              ? 'Sent to Skipper'
+                              : (clip.status || 'pending_review').replaceAll('_', ' ')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             ) : (
               <StartPanel onSessionStarted={handleSessionStarted} />
             )}

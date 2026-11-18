@@ -84,9 +84,130 @@ def install(app, output_dir, list_clips):
     async def overview(request: Request):
         await guard(request)
         import yt_oauth
+        from live_clipper.skipper import configured_metadata_override
         tokens = yt_oauth.load_tokens() or {}
         clips = [{k: v for k, v in c.items() if not k.startswith('_')} for c in list_clips()]
-        return {'items': [public(i) for i in store.list()], 'clips': clips, 'settings': store.settings(), 'channel': tokens.get('channel'), 'n8n_token_configured': bool(os.environ.get('SHORTLY_PUBLISHING_TOKEN'))}
+        return {
+            'items': [public(i) for i in store.list()],
+            'clips': clips,
+            'settings': store.settings(),
+            'defaults': configured_metadata_override(),
+            'channel': tokens.get('channel'),
+            'n8n_token_configured': bool(os.environ.get('SHORTLY_PUBLISHING_TOKEN')),
+        }
+
+    def _resolve_clip_source(clip_id: str | None, job_id: str | None = None, filename: str | None = None) -> tuple[str, Path, str]:
+        """Resolve a Studio or History clip to (canonical_key, Path, fallback_name)."""
+        out_root = Path(output_dir).resolve()
+        # 1. Match Studio clip via list_clips() (e.g. "<job_id>:<index>")
+        if clip_id:
+            clip = next((c for c in list_clips() if c['id'] == clip_id), None)
+            if clip:
+                src = Path(clip['_path']).resolve()
+                if not src.is_relative_to(out_root) or not src.is_file():
+                    raise HTTPException(400, 'Invalid or missing clip path')
+                return clip_id, src, clip.get('name') or src.stem
+
+        # 2. Match explicit job_id + filename under OUTPUT_DIR (e.g. subtitled/hooked clip in Studio)
+        if job_id and filename:
+            safe_job = Path(job_id).name
+            safe_file = Path(filename).name
+            candidate = (out_root / safe_job / safe_file).resolve()
+            if candidate.is_relative_to(out_root) and candidate.is_file():
+                return clip_id or f"{safe_job}:{safe_file}", candidate, candidate.stem
+
+        # 3. Match Live Clipper clip from History ("live:<uuid>")
+        if clip_id and clip_id.startswith('live:'):
+            raw_id = clip_id.split(':', 1)[1]
+            try:
+                from live_clipper.queue import global_queue
+                q_item = global_queue.get_item(raw_id)
+                if q_item and q_item.clip_path:
+                    src = Path(q_item.clip_path).resolve()
+                    live_root = Path(os.environ.get('LIVE_SESSIONS_DIR', str(out_root / 'live_sessions'))).resolve()
+                    if src.is_file() and (src.is_relative_to(out_root) or src.is_relative_to(live_root)):
+                        return clip_id, src, src.stem
+            except Exception:
+                pass
+
+        raise HTTPException(404, f'Clip not found on disk: {clip_id or filename or "unknown"}')
+
+    async def _run_direct_uploads(item_ids: list[str]):
+        """Upload newly pushed clips straight to YouTube sequentially."""
+        for iid in item_ids:
+            claimed = store.claim_item(iid)
+            if not claimed:
+                continue
+            await worker(*claimed)
+
+    class DirectPushItem(BaseModel):
+        clip_id: str | None = None
+        job_id: str | None = None
+        filename: str | None = None
+        title: str = Field(min_length=1, max_length=100)
+        description: str = Field(default='', max_length=5000)
+        tags: list[str] = Field(default_factory=list, max_length=50)
+        privacy: str = Field(default='public', pattern='^(private|unlisted|public)$')
+        made_for_kids: bool = False
+        publish_at: str | None = None
+
+    class DirectPushRequest(BaseModel):
+        items: list[DirectPushItem] = Field(min_length=1, max_length=30)
+        auto_start: bool = True
+
+    @router.post('/push')
+    async def direct_push(body: DirectPushRequest, request: Request):
+        """Queue and immediately upload one or more clips directly to YouTube (no Live Clipper pipeline)."""
+        await guard(request)
+        channel = await youtube.channel()
+        created = []
+        created_ids = []
+
+        for entry in body.items:
+            if entry.publish_at:
+                from datetime import datetime
+                dt = datetime.fromisoformat(entry.publish_at.replace('Z', '+00:00'))
+                if dt.tzinfo is None or dt.timestamp() < time.time() + 120 or entry.privacy != 'public':
+                    raise HTTPException(400, 'Schedule public videos at least two minutes ahead, including timezone')
+
+            canon_key, source, _fallback = _resolve_clip_source(entry.clip_id, entry.job_id, entry.filename)
+            digest = await asyncio.to_thread(lambda p=source: hashlib.sha256(p.read_bytes()).hexdigest())
+            snapshot = store.root / f'{digest}.mp4'
+            if not snapshot.exists():
+                temporary = store.root / f'{digest}.{secrets.token_hex(6)}.tmp'
+                await asyncio.to_thread(shutil.copyfile, source, temporary)
+                copied_digest = await asyncio.to_thread(lambda p=temporary: hashlib.sha256(p.read_bytes()).hexdigest())
+                if copied_digest != digest:
+                    temporary.unlink(missing_ok=True)
+                    raise HTTPException(409, 'Video changed during preparation. Try again after rendering finishes.')
+                os.replace(temporary, snapshot)
+
+            clean_tags = [t.strip() for t in (entry.tags or []) if isinstance(t, str) and t.strip()][:50]
+            item = store.add({
+                'clip_key': f'direct:{canon_key}:{secrets.token_hex(4)}',
+                'source_clip_id': canon_key,
+                'channel_id': channel['id'],
+                'channel_name': channel['title'],
+                'digest': digest,
+                'snapshot': str(snapshot),
+                'title': entry.title.strip()[:100],
+                'description': (entry.description or '')[:5000],
+                'tags': clean_tags,
+                'privacy': entry.privacy,
+                'made_for_kids': bool(entry.made_for_kids),
+                'publish_at': entry.publish_at,
+                'custom_metadata': True,
+                'direct_push': True,
+            }, initial_status='queued')
+            created.append(public(item))
+            created_ids.append(item['id'])
+
+        if body.auto_start and created_ids:
+            task = asyncio.create_task(_run_direct_uploads(created_ids))
+            tasks.add(task)
+            task.add_done_callback(tasks.discard)
+
+        return {'ok': True, 'count': len(created), 'items': created}
 
     class Draft(BaseModel):
         clip_id: str
@@ -172,30 +293,66 @@ def install(app, output_dir, list_clips):
     async def skipper_status(request: Request):
         await guard(request)
         from live_clipper.skipper import DEFAULT_LAYOUT, VALID_LAYOUTS
+        import camera_inset
         settings = store.settings()
         if settings.get('skipper_layout') not in VALID_LAYOUTS:
             settings = {**settings, 'skipper_layout': DEFAULT_LAYOUT}
+        settings = {
+            **settings,
+            'skipper_mirror': bool(settings.get('skipper_mirror', False)),
+            'skipper_webcam_mode': camera_inset.normalize_webcam_mode(settings.get('skipper_webcam_mode')),
+            'skipper_webcam_box': camera_inset.parse_webcam_box(settings.get('skipper_webcam_box')),
+        }
         import yt_oauth
         return {'channel': (yt_oauth.load_tokens() or {}).get('channel'), 'settings': settings, 'items': [
-            {k: i.get(k) for k in ('id','clip_key','title','status','error','video_id','layout')}
+            {k: i.get(k) for k in ('id','clip_key','title','status','error','video_id','layout','mirror_video','webcam_mode')}
             for i in store.list() if i['clip_key'].startswith('live:')]}
 
     @router.put('/skipper')
     async def skipper_mode(request: Request):
         await guard(request)
         from live_clipper.skipper import DEFAULT_LAYOUT, VALID_LAYOUTS
+        import camera_inset
         body = await request.json()
         enabled = body.get('enabled')
         layout = body.get('layout')
+        mirror = body.get('mirror')
+        webcam_mode = body.get('webcam_mode')
+        has_webcam_box = 'webcam_box' in body
+        webcam_box = body.get('webcam_box')
         if layout is not None and layout not in VALID_LAYOUTS:
             raise HTTPException(422, 'Invalid layout mode')
-        if enabled is None and layout is not None:
-            return store.configure({'skipper_layout': layout})
+        if mirror is not None and not isinstance(mirror, bool):
+            raise HTTPException(422, 'mirror must be true or false')
+        if webcam_mode is not None and str(webcam_mode).strip().lower() not in camera_inset.VALID_WEBCAM_MODES:
+            raise HTTPException(422, 'Invalid webcam_mode')
+        parsed_wc_box = None
+        if has_webcam_box and webcam_box is not None:
+            parsed_wc_box = camera_inset.parse_webcam_box(webcam_box)
+            if parsed_wc_box is None:
+                raise HTTPException(422, 'Invalid webcam_box coordinates')
+        if enabled is None and (layout is not None or mirror is not None or webcam_mode is not None or has_webcam_box):
+            quick_patch = {}
+            if layout is not None:
+                quick_patch['skipper_layout'] = layout
+            if mirror is not None:
+                quick_patch['skipper_mirror'] = mirror
+            if webcam_mode is not None:
+                quick_patch['skipper_webcam_mode'] = camera_inset.normalize_webcam_mode(webcam_mode)
+            if has_webcam_box:
+                quick_patch['skipper_webcam_box'] = parsed_wc_box
+            return store.configure(quick_patch)
         if not isinstance(enabled, bool):
             raise HTTPException(400, 'Select Auto or Manual')
         patch = {'skipper': enabled}
         if layout is not None:
             patch['skipper_layout'] = layout
+        if mirror is not None:
+            patch['skipper_mirror'] = mirror
+        if webcam_mode is not None:
+            patch['skipper_webcam_mode'] = camera_inset.normalize_webcam_mode(webcam_mode)
+        if has_webcam_box:
+            patch['skipper_webcam_box'] = parsed_wc_box
         if enabled:
             channel = await youtube.channel()
             from caption_looks import Look

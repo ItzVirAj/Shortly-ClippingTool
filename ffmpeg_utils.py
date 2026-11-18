@@ -343,8 +343,12 @@ def _gpu_cut_ok(input_video):
     return _gpu_cut_sources[input_video]
 
 
-def cut_clip(input_video, clip_temp_path, start, end, clip_number):
+def cut_clip(input_video, clip_temp_path, start, end, clip_number, mirror=False):
     """Cut [start, end] out of the source into ``clip_temp_path``.
+
+    When ``mirror=True``, applies a horizontal flip (``-vf hflip``) during the
+    cut pass itself so reframing, hooks, and subtitles run downstream without
+    ever mirroring text overlays or requiring an extra encode pass.
 
     Raises RuntimeError with ffmpeg's own stderr when the cut does not produce
     a playable file. That report is the point: since dec-2025 the cut ran with
@@ -362,17 +366,19 @@ def cut_clip(input_video, clip_temp_path, start, end, clip_number):
     session cannot allocate on a GPU that other jobs are filling.
     """
     encode_args = video_encode_args(INTERMEDIATE)
+    vf_args = ['-vf', 'hflip'] if mirror else []
     command = [
         'ffmpeg', '-y',
         '-ss', str(start),
         '-to', str(end),
         '-i', input_video,
+        *vf_args,
         *encode_args,
         *audio_encode_args(),
         clip_temp_path
     ]
     gpu_command = None
-    if _gpu_cut_ok(input_video):
+    if not mirror and _gpu_cut_ok(input_video):
         # CUDA frames are already 4:2:0 (nv12); -pix_fmt would force a copy
         # back to system memory.
         gpu_args = list(encode_args)

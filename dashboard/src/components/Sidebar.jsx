@@ -16,6 +16,7 @@ import {
   Lock,
   X,
   Radio,
+  Tv,
 } from 'lucide-react';
 
 export default function Sidebar({
@@ -95,6 +96,13 @@ export default function Sidebar({
       label: 'Live Clipper',
       icon: Radio,
       badge: { text: 'LIVE', color: 'orange' },
+    },
+    {
+      type: 'single',
+      id: 'livestream',
+      label: 'Live Stream',
+      icon: Tv,
+      badge: { text: 'MANUAL', color: 'mint' },
     },
     {
       type: 'group',

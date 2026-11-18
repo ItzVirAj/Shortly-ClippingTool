@@ -29,6 +29,9 @@ class LiveConfig:
     audio_peaks_enabled: bool = True
     audio_peak_db: float = 6.0
     heatmap_enabled: bool = True
+    mirror_video: bool = False
+    webcam_mode: str = "auto"
+    webcam_box: Optional[Dict[str, float]] = None
 
     def validate(self) -> None:
         """Validate ranges and required acknowledgments."""
@@ -101,6 +104,9 @@ class LiveConfig:
             audio_peaks_enabled=bool(data.get("audio_peaks_enabled", True)),
             audio_peak_db=float(data.get("audio_peak_db", 6.0)),
             heatmap_enabled=bool(data.get("heatmap_enabled", True)),
+            mirror_video=bool(data.get("mirror_video", False)),
+            webcam_mode=str(data.get("webcam_mode") or "auto"),
+            webcam_box=data.get("webcam_box") if isinstance(data.get("webcam_box"), dict) else None,
         )
         cfg.validate()
         return cfg
@@ -235,6 +241,10 @@ class QueueItem:
     error: Optional[str] = None
     hook_mode: Optional[str] = None
     keep_forever: bool = False
+    mirror_video: bool = False
+    webcam_mode: str = "auto"
+    webcam_box: Optional[Dict[str, float]] = None
+    channel: Optional[str] = None
 
     def transition_to(self, new_status: str) -> None:
         """Validate and apply a state transition. Idempotent if already in target status."""
@@ -270,5 +280,9 @@ class QueueItem:
             error=data.get("error"),
             hook_mode=data.get("hook_mode"),
             keep_forever=bool(data.get("keep_forever", False)),
+            mirror_video=bool(data.get("mirror_video", False)),
+            webcam_mode=str(data.get("webcam_mode") or "auto"),
+            webcam_box=data.get("webcam_box") if isinstance(data.get("webcam_box"), dict) else None,
+            channel=data.get("channel"),
         )
 

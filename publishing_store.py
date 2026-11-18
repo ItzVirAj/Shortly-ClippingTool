@@ -110,8 +110,11 @@ class Store:
             paused_row = db.execute("SELECT value FROM settings WHERE key='paused'").fetchone()
             paused = json.loads(paused_row[0]) if paused_row else True
             states = ('processing', 'scheduled') if paused else ('processing', 'scheduled', 'queued', 'uploading', 'editing', 'metadata')
-            # Auto authorizes live jobs independently of the manual publishing queue.
-            live_clause = " OR (clip_key LIKE 'live:%' AND status IN ('editing','metadata','queued','uploading'))"
+            # Auto authorizes live and direct-push jobs independently of the manual publishing queue.
+            live_clause = (
+                " OR (clip_key LIKE 'live:%' AND status IN ('editing','metadata','queued','uploading'))"
+                " OR (clip_key LIKE 'direct:%' AND status IN ('queued','uploading','processing'))"
+            )
             row = db.execute(f"SELECT * FROM items WHERE (status IN ({','.join('?' for _ in states)}){live_clause}) AND next_check<=? ORDER BY next_check,created LIMIT 1", (*states, now)).fetchone()
             if not row:
                 return None
@@ -127,6 +130,24 @@ class Store:
             db.execute('UPDATE items SET status=?,lease=?,lease_until=?,revision=revision+1 WHERE id=?',
                        (status, token, now + 120, row['id']))
         return self.get(row['id']), token
+
+    def claim_item(self, item_id):
+        """Atomically claim a specific queued/uploading item for immediate direct upload."""
+        now = time.time()
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute(
+                "SELECT * FROM items WHERE id=? AND status IN ('queued','uploading') AND lease_until<=?",
+                (item_id, now),
+            ).fetchone()
+            if not row:
+                return None
+            token = uuid.uuid4().hex
+            db.execute(
+                "UPDATE items SET status='uploading',lease=?,lease_until=?,revision=revision+1 WHERE id=?",
+                (token, now + 120, item_id),
+            )
+        return self.get(item_id), token
 
     def renew(self, item_id, token):
         with self.connect() as db:

@@ -13,6 +13,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { apiJson } from '../../lib/api';
+import WebcamBoxPicker from '../WebcamBoxPicker';
 
 // Sensitivity presets definition with Apple-style metadata
 const PRESET_OPTIONS = [
@@ -71,6 +72,9 @@ export default function StartPanel({ onSessionStarted }) {
   const [hookMode, setHookMode] = useState('auto');
   const [autoProcess, setAutoProcess] = useState(false);
   const [waitForLive, setWaitForLive] = useState(false);
+  const [mirrorVideo, setMirrorVideo] = useState(false);
+  const [webcamMode, setWebcamMode] = useState('auto');
+  const [webcamBox, setWebcamBox] = useState(null);
   const [advConfig, setAdvConfig] = useState({
     before_sec: 25,
     after_sec: 10,
@@ -187,6 +191,9 @@ export default function StartPanel({ onSessionStarted }) {
       hook_mode: hookMode,
       auto_process: Boolean(autoProcess),
       wait_for_live: Boolean(waitForLive),
+      mirror_video: Boolean(mirrorVideo),
+      webcam_mode: webcamMode,
+      webcam_box: webcamMode === 'custom' ? webcamBox : null,
       audio_peaks_enabled: Boolean(audioPeaksEnabled),
       heatmap_enabled: Boolean(heatmapEnabled),
       detector: {
@@ -298,6 +305,16 @@ export default function StartPanel({ onSessionStarted }) {
                 <option value="none">Off</option>
               </select>
             </label>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <WebcamBoxPicker
+                mode={webcamMode}
+                box={webcamBox}
+                onChange={({ webcam_mode: nextMode, webcam_box: nextBox }) => {
+                  setWebcamMode(nextMode);
+                  if (nextBox !== undefined) setWebcamBox(nextBox);
+                }}
+              />
+            </div>
             {[
               ['Audio peaks', audioPeaksEnabled, setAudioPeaksEnabled],
               ...(platform === 'youtube'
@@ -305,6 +322,7 @@ export default function StartPanel({ onSessionStarted }) {
                 : []),
               ['Auto-approve clips', autoProcess, setAutoProcess],
               ['Wait for stream to go live', waitForLive, setWaitForLive],
+              ['Mirror video (flip before subtitles)', mirrorVideo, setMirrorVideo],
             ].map(([name, value, set]) => (
               <label className="lc-check" key={name}>
                 <input type="checkbox" checked={value} onChange={(e) => set(e.target.checked)} />

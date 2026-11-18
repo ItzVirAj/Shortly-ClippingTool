@@ -707,18 +707,31 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
     elif os.environ.get("STREAMER_BOTTOM_LAYOUT", "0") == "1":
         streamer_mode = "streamer_bottom"
 
+    webcam_mode = camera_inset.normalize_webcam_mode(os.environ.get("WEBCAM_MODE", "auto"))
+    webcam_box_cfg = camera_inset.parse_webcam_box(os.environ.get("WEBCAM_BOX"))
+
     streamer_box = None
     if streamer_mode and not passthrough:
-        try:
-            streamer_box = camera_inset.detect_streamer_webcam(input_video)
-        except Exception as e:
-            print(f"   ⚠️ Streamer webcam detection failed ({e}) — using default framing.")
-        if streamer_box:
-            print(f"   🎮 2-Way Streamer layout ({streamer_mode}): webcam at {streamer_box}")
+        if webcam_mode == "none":
+            print("   🎮 Webcam mode set to 'none' — using blurred-center framing instead of streamer split.")
+            for i in range(len(strategies)):
+                strategies[i] = 'GENERAL'
         else:
-            print(f"   🎮 2-Way Streamer layout ({streamer_mode}): active")
-        for i in range(len(strategies)):
-            strategies[i] = 'STREAMER_SPLIT'
+            try:
+                streamer_box = camera_inset.resolve_webcam_box(
+                    input_video, orig_w, orig_h,
+                    webcam_mode=webcam_mode, webcam_box=webcam_box_cfg,
+                )
+            except Exception as e:
+                print(f"   ⚠️ Streamer webcam detection failed ({e}) — using blurred-center framing.")
+            if streamer_box:
+                print(f"   🎮 2-Way Streamer layout ({streamer_mode}, mode={webcam_mode}): webcam at {streamer_box}")
+                for i in range(len(strategies)):
+                    strategies[i] = 'STREAMER_SPLIT'
+            else:
+                print(f"   🎮 No stationary corner webcam found (mode={webcam_mode}) — using blurred-center framing.")
+                for i in range(len(strategies)):
+                    strategies[i] = 'GENERAL'
 
     # SPLIT is an upgrade applied on top of the TRACK/GENERAL verdict, keyed by
     # the scene's START FRAME rather than its index: scene_frame_ranges() drops
@@ -769,10 +782,22 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
     # false positives. The box is fixed for the whole video, so it is found once.
     inset = None
     if content_ranges and screencast_layout.ENABLED:
-        try:
-            inset = camera_inset.detect(input_video)
-        except Exception as e:
-            print(f"   ⚠️ Inset check failed ({e}) — using the screen layouts.")
+        if webcam_mode == "none":
+            inset = None
+        elif webcam_mode == "custom" and webcam_box_cfg:
+            inset = camera_inset.normalized_to_pixel_box(webcam_box_cfg, orig_w, orig_h)
+        elif webcam_mode in camera_inset.CORNER_MODES:
+            try:
+                inset = camera_inset.resolve_webcam_box(
+                    input_video, orig_w, orig_h, webcam_mode=webcam_mode
+                )
+            except Exception as e:
+                print(f"   ⚠️ Inset corner check failed ({e}) — using the screen layouts.")
+        else:
+            try:
+                inset = camera_inset.detect(input_video)
+            except Exception as e:
+                print(f"   ⚠️ Inset check failed ({e}) — using the screen layouts.")
         if inset:
             print(f"   📹 Webcam inset at {inset}")
 

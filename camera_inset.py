@@ -461,16 +461,26 @@ def inset_filtergraph(orig_w, orig_h, out_w, out_h, box, camera_ratio=None):
     )
 
 
-def detect_streamer_webcam(video_path, samples=12):
-    """Detect streamer facecam box with relaxed thresholds and safe fallback.
+def detect_streamer_webcam(video_path, samples=12, webcam_mode="auto", webcam_box=None):
+    """Detect or resolve the streamer facecam box without grabbing center game characters.
 
-    Returns (x, y, w, h) in original video coordinates.
-    Always returns a usable bounding box (defaults to upper-right quadrant if detection is subtle).
+    Modes:
+    - ``custom``: Use the user-drawn normalized ``webcam_box`` ({x, y, w, h} in 0..1) directly
+      with ZERO ML/YOLO inference (100% locked to the tracing box).
+    - ``top_left`` | ``top_right`` | ``bottom_left`` | ``bottom_right``: Inspect ONLY that
+      corner quadrant to tighten onto the webcam; falls back to a clean 16:9 crop of that
+      exact corner if no face/person is detected.
+    - ``auto``: Strictly inspects ONLY the 4 outer corner ROIs (excluding the central gameplay
+      area where game characters live), preferring MediaPipe real faces and enforcing strict
+      temporal stability across frames. Returns ``None`` if no stationary corner webcam exists
+      so callers can fall back cleanly to blurred-center framing.
+    - ``none``: Returns ``None`` immediately (disables webcam split).
     """
     import cv2
-    import numpy as np
-    import main as m
-    import screencast_layout
+
+    mode = normalize_webcam_mode(webcam_mode)
+    if mode == "none":
+        return None
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -478,11 +488,207 @@ def detect_streamer_webcam(video_path, samples=12):
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cap.release()
     if total <= 0 or not frame_w or not frame_h:
-        cap.release()
         return None
 
-    boxes = []
+    return resolve_webcam_box(
+        video_path,
+        frame_w,
+        frame_h,
+        webcam_mode=mode,
+        webcam_box=webcam_box,
+        samples=samples,
+    )
+
+
+VALID_WEBCAM_MODES = (
+    "auto",
+    "top_left",
+    "top_right",
+    "bottom_left",
+    "bottom_right",
+    "custom",
+    "none",
+)
+
+CORNER_MODES = ("top_left", "top_right", "bottom_left", "bottom_right")
+
+# Outer corner search regions as (x_frac, y_frac, w_frac, h_frac).
+# Physically excludes the central gameplay band where game characters stand.
+CORNER_ROIS = {
+    "top_left": (0.00, 0.00, 0.38, 0.44),
+    "top_right": (0.62, 0.00, 0.38, 0.44),
+    "bottom_left": (0.00, 0.56, 0.38, 0.44),
+    "bottom_right": (0.62, 0.56, 0.38, 0.44),
+}
+
+
+def normalize_webcam_mode(mode) -> str:
+    val = str(mode or "auto").strip().lower()
+    return val if val in VALID_WEBCAM_MODES else "auto"
+
+
+def parse_webcam_box(raw):
+    """Validate and clamp a normalized {x, y, w, h} webcam box in [0, 1]."""
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        raw = raw.strip()
+        if not raw:
+            return None
+        try:
+            import json
+            raw = json.loads(raw)
+        except Exception:
+            return None
+    if not isinstance(raw, dict):
+        return None
+    try:
+        x = float(raw["x"])
+        y = float(raw["y"])
+        w = float(raw["w"])
+        h = float(raw["h"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not all(v == v for v in (x, y, w, h)):  # NaN guard
+        return None
+    x = max(0.0, min(0.95, x))
+    y = max(0.0, min(0.95, y))
+    w = max(0.05, min(1.0 - x, w))
+    h = max(0.05, min(1.0 - y, h))
+    return {
+        "x": round(x, 4),
+        "y": round(y, 4),
+        "w": round(w, 4),
+        "h": round(h, 4),
+    }
+
+
+def mirror_webcam_config(webcam_mode, webcam_box):
+    """Horizontally mirror a webcam corner or normalized custom box (for pre-mirrored video)."""
+    mode = normalize_webcam_mode(webcam_mode)
+    swap = {
+        "top_left": "top_right",
+        "top_right": "top_left",
+        "bottom_left": "bottom_right",
+        "bottom_right": "bottom_left",
+    }
+    mirrored_mode = swap.get(mode, mode)
+    box = parse_webcam_box(webcam_box)
+    mirrored_box = None
+    if box is not None:
+        mirrored_box = parse_webcam_box({
+            "x": max(0.0, 1.0 - (box["x"] + box["w"])),
+            "y": box["y"],
+            "w": box["w"],
+            "h": box["h"],
+        })
+    return mirrored_mode, mirrored_box
+
+
+def normalized_to_pixel_box(norm_box, frame_w, frame_h):
+    """Convert normalized {x, y, w, h} to clamped even pixel (x, y, w, h)."""
+    box = parse_webcam_box(norm_box)
+    if not box or frame_w <= 0 or frame_h <= 0:
+        return None
+    px = int(round(box["x"] * frame_w))
+    py = int(round(box["y"] * frame_h))
+    pw = max(16, int(round(box["w"] * frame_w)))
+    ph = max(16, int(round(box["h"] * frame_h)))
+    px = max(0, min(px, frame_w - pw))
+    py = max(0, min(py, frame_h - ph))
+    pw = min(pw, frame_w - px)
+    ph = min(ph, frame_h - py)
+    return (px, py, pw, ph)
+
+
+def default_corner_box(corner, frame_w, frame_h, width_frac=0.30):
+    """Default 16:9 webcam crop pinned to one of the 4 corners."""
+    bw = max(32, int(round(frame_w * width_frac)))
+    bh = max(32, min(frame_h, int(round(bw / INSET_ASPECT))))
+    if corner == "top_left":
+        return (0, 0, bw, bh)
+    if corner == "bottom_left":
+        return (0, max(0, frame_h - bh), bw, bh)
+    if corner == "bottom_right":
+        return (max(0, frame_w - bw), max(0, frame_h - bh), bw, bh)
+    return (max(0, frame_w - bw), 0, bw, bh)  # top_right
+
+
+def _detect_in_corner_roi(frame, corner, frame_w, frame_h):
+    """Run face (preferred) then YOLO person detection strictly inside one corner ROI.
+
+    Returns ``(full_frame_box, is_face)`` or ``(None, False)``.
+    """
+    import main as m
+    import screencast_layout
+
+    xf, yf, wf, hf = CORNER_ROIS[corner]
+    rx = int(round(xf * frame_w))
+    ry = int(round(yf * frame_h))
+    rw = max(16, min(frame_w - rx, int(round(wf * frame_w))))
+    rh = max(16, min(frame_h - ry, int(round(hf * frame_h))))
+    roi = frame[ry:ry + rh, rx:rx + rw]
+    if roi.size == 0:
+        return None, False
+
+    faces = screencast_layout.detect_faces_full_res(roi)
+    if not faces:
+        try:
+            candidates = m.detect_face_candidates(roi)
+            if candidates:
+                faces = candidates
+        except Exception:
+            faces = []
+
+    if faces:
+        best = max(faces, key=lambda c: c.get("score", 0) if isinstance(c, dict) else 1)
+        fbox = best.get("box") if isinstance(best, dict) else best
+        if fbox and len(fbox) == 4:
+            bx, by, bw, bh = fbox
+            return (rx + int(bx), ry + int(by), int(bw), int(bh)), True
+
+    try:
+        pbox = m.detect_person_yolo(roi)
+    except Exception:
+        pbox = None
+    if pbox and len(pbox) == 4:
+        bx, by, bw, bh = pbox
+        return (rx + int(bx), ry + int(by), int(bw), int(bh)), False
+
+    return None, False
+
+
+def resolve_webcam_box(video_path, frame_w, frame_h, webcam_mode="auto", webcam_box=None, samples=12):
+    """Resolve the exact streamer webcam pixel box (x, y, w, h), or None if no cam."""
+    mode = normalize_webcam_mode(webcam_mode)
+    if mode == "none":
+        return None
+
+    if mode == "custom":
+        px_box = normalized_to_pixel_box(webcam_box, frame_w, frame_h)
+        if px_box:
+            return px_box
+        # Invalid/empty custom box -> fall through to auto 4-corner check
+        mode = "auto"
+
+    import cv2
+    import numpy as np
+
+    corners_to_check = (mode,) if mode in CORNER_MODES else CORNER_MODES
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return default_corner_box(mode, frame_w, frame_h) if mode in CORNER_MODES else None
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if total <= 0:
+        cap.release()
+        return default_corner_box(mode, frame_w, frame_h) if mode in CORNER_MODES else None
+
+    corner_hits = {c: [] for c in corners_to_check}
+    corner_face_counts = {c: 0 for c in corners_to_check}
+
     try:
         sample_indices = np.linspace(0, max(0, total - 1), samples, dtype=int)
         for f_idx in sample_indices:
@@ -490,45 +696,48 @@ def detect_streamer_webcam(video_path, samples=12):
             ok, frame = cap.read()
             if not ok or frame is None:
                 continue
-
-            # 1. Full-res face detection
-            faces = screencast_layout.detect_faces_full_res(frame)
-            if not faces:
-                # 2. Downscaled face candidates
-                try:
-                    candidates = m.detect_face_candidates(frame)
-                    if candidates:
-                        faces = candidates
-                except Exception:
-                    pass
-
-            if faces:
-                best = max(faces, key=lambda c: c.get('score', 0) if isinstance(c, dict) else 1)
-                box = best.get('box') if isinstance(best, dict) else best
-            else:
-                # 3. Person detection fallback
-                try:
-                    box = m.detect_person_yolo(frame)
-                except Exception:
-                    box = None
-
-            if not box:
-                continue
-
-            if is_cornered(box, frame_w, frame_h, relaxed=True):
-                boxes.append(inset_box(box, frame_w, frame_h, face=bool(faces)))
+            for c in corners_to_check:
+                box, is_face = _detect_in_corner_roi(frame, c, frame_w, frame_h)
+                if not box:
+                    continue
+                grown = inset_box(box, frame_w, frame_h, face=is_face)
+                corner_hits[c].append(grown)
+                if is_face:
+                    corner_face_counts[c] += 1
     finally:
         cap.release()
 
-    if boxes:
-        med = stable_box(boxes, frame_w, frame_h, relaxed=True)
-        if med:
-            return med
+    min_needed = max(3, samples // 3)
+    best_corner = None
+    best_score = -1.0
+    best_box = None
 
-    # Safe fallback default: top-right corner ~35% webcam
-    default_w = int(round(frame_w * 0.35))
-    default_h = int(round(default_w / INSET_ASPECT))
-    return (frame_w - default_w, 0, default_w, default_h)
+    for c in corners_to_check:
+        hits = corner_hits[c]
+        if len(hits) < min_needed:
+            continue
+        med = stable_box(hits, frame_w, frame_h, min_agree=min_needed, relaxed=False)
+        if not med:
+            continue
+        face_hits = corner_face_counts[c]
+        body_hits = len(hits) - face_hits
+        score = face_hits * 2.5 + body_hits * 1.0
+        if score > best_score:
+            best_score = score
+            best_corner = c
+            best_box = med
+
+    if best_box is not None:
+        return best_box
+
+    # If the user explicitly pinned a corner, ALWAYS honor that corner even when
+    # lighting/angle prevented face/YOLO detection.
+    if mode in CORNER_MODES:
+        return default_corner_box(mode, frame_w, frame_h)
+
+    # Auto mode found no stationary webcam in any of the 4 corners -> return None
+    # so callers avoid zooming in on a game character or empty HUD corner.
+    return None
 
 
 def streamer_split_filtergraph(orig_w, orig_h, out_w, out_h, box=None, orientation="streamer_top", divider=True):

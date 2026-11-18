@@ -21,6 +21,10 @@ def submit_to_shortly_pipeline(
     clip_path: str,
     hook_mode: str = "auto",
     credit_text: Optional[str] = None,
+    mirror_video: bool = False,
+    webcam_mode: Optional[str] = None,
+    webcam_box: Optional[dict] = None,
+    streamer: Optional[str] = None,
 ) -> str:
     """Submit an approved raw clip to Shortly's existing processing pipeline.
 
@@ -65,6 +69,19 @@ def submit_to_shortly_pipeline(
 
     if credit_text:
         env["CLIPPER_CREDIT"] = str(credit_text)
+
+    streamer_name = (streamer or credit_text or "").strip()
+    if streamer_name:
+        env["CONTEXT_STREAMER"] = streamer_name
+
+    if mirror_video:
+        env["MIRROR_VIDEO"] = "1"
+
+    if webcam_mode:
+        env["WEBCAM_MODE"] = str(webcam_mode)
+    if isinstance(webcam_box, dict):
+        import json
+        env["WEBCAM_BOX"] = json.dumps(webcam_box)
 
     # Register into Shortly's global jobs dictionary
     timed_log = getattr(shortly_app, "_TimedLog", list)
@@ -158,7 +175,18 @@ class HandoffWorker:
         try:
             item.transition_to("processing")
             # Submit to pipeline
-            job_id = self.submit_fn(item.clip_path, item.hook_mode or "auto", None)
+            try:
+                job_id = self.submit_fn(
+                    item.clip_path,
+                    item.hook_mode or "auto",
+                    None,
+                    mirror_video=bool(getattr(item, "mirror_video", False)),
+                    webcam_mode=getattr(item, "webcam_mode", None),
+                    webcam_box=getattr(item, "webcam_box", None),
+                    streamer=getattr(item, "channel", None),
+                )
+            except TypeError:
+                job_id = self.submit_fn(item.clip_path, item.hook_mode or "auto", None)
             item.pipeline_job_id = job_id
             logger.info(f"Item {item.id} transitioned to processing with pipeline job {job_id}")
 

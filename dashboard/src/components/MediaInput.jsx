@@ -17,6 +17,7 @@ import {
 import { track } from '../lib/analytics';
 import { getApiUrl } from '../config';
 import SourceCost from './SourceCost';
+import WebcamBoxPicker from './WebcamBoxPicker';
 
 const SUPPORTED_PLATFORMS = [
     'YouTube', 'Vimeo', 'TikTok', 'X / Twitter', 'Twitch', 'Kick',
@@ -34,6 +35,41 @@ const readVideoDuration = (file) => new Promise((resolve) => {
         v.onloadedmetadata = () => done(Number.isFinite(v.duration) ? v.duration : null);
         v.onerror = () => done(null);
         setTimeout(() => done(null), 8000);
+        v.src = url;
+    } catch { resolve(null); }
+});
+
+const readVideoFrame = (file) => new Promise((resolve) => {
+    try {
+        const url = URL.createObjectURL(file);
+        const v = document.createElement('video');
+        v.muted = true;
+        v.playsInline = true;
+        v.preload = 'auto';
+        let finished = false;
+        const finish = (dataUrl) => {
+            if (finished) return;
+            finished = true;
+            URL.revokeObjectURL(url);
+            resolve(dataUrl);
+        };
+        v.onloadedmetadata = () => {
+            const target = Number.isFinite(v.duration) && v.duration > 3 ? Math.min(5, v.duration * 0.15) : 0.2;
+            try { v.currentTime = target; } catch { finish(null); }
+        };
+        v.onseeked = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                const scale = Math.min(1, 640 / Math.max(1, v.videoWidth || 640));
+                canvas.width = Math.max(2, Math.round((v.videoWidth || 640) * scale));
+                canvas.height = Math.max(2, Math.round((v.videoHeight || 360) * scale));
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+                finish(canvas.toDataURL('image/jpeg', 0.8));
+            } catch { finish(null); }
+        };
+        v.onerror = () => finish(null);
+        setTimeout(() => finish(null), 6000);
         v.src = url;
     } catch { resolve(null); }
 });
@@ -66,6 +102,37 @@ export default function MediaInput({
     const [autoHookStyle, setAutoHookStyle] = useState(() => {
         try { return localStorage.getItem('os_auto_hook_style_v2') || 'pill'; } catch { return 'pill'; }
     });
+    const [streamerName, setStreamerName] = useState(() => {
+        try { return localStorage.getItem('os_streamer_name') || ''; } catch { return ''; }
+    });
+    const [mirrorVideo, setMirrorVideo] = useState(() => {
+        try { return localStorage.getItem('os_mirror_video') === '1'; } catch { return false; }
+    });
+    const [webcamMode, setWebcamMode] = useState(() => {
+        try { return localStorage.getItem('os_webcam_mode') || 'auto'; } catch { return 'auto'; }
+    });
+    const [webcamBox, setWebcamBox] = useState(() => {
+        try {
+            const raw = localStorage.getItem('os_webcam_box');
+            return raw ? JSON.parse(raw) : null;
+        } catch { return null; }
+    });
+    const [autoPushYt, setAutoPushYt] = useState(() => {
+        try { return localStorage.getItem('os_auto_push_yt') === '1'; } catch { return false; }
+    });
+    const [autoPushYtMode, setAutoPushYtMode] = useState(() => {
+        try { return localStorage.getItem('os_auto_push_yt_mode') || 'review'; } catch { return 'review'; }
+    });
+    const [autoPushYtTitle, setAutoPushYtTitle] = useState(() => {
+        try { return localStorage.getItem('os_auto_push_yt_title') || ''; } catch { return ''; }
+    });
+    const [autoPushYtDesc, setAutoPushYtDesc] = useState(() => {
+        try { return localStorage.getItem('os_auto_push_yt_desc') || ''; } catch { return ''; }
+    });
+    const [autoPushYtPrivacy, setAutoPushYtPrivacy] = useState(() => {
+        try { return localStorage.getItem('os_auto_push_yt_privacy') || 'public'; } catch { return 'public'; }
+    });
+    const [filePreviewFrame, setFilePreviewFrame] = useState(null);
     const [layout, setLayout] = useState(() => {
         try { return localStorage.getItem('os_layout') || 'auto'; } catch { return 'auto'; }
     });
@@ -84,6 +151,7 @@ export default function MediaInput({
     useEffect(() => {
         let cancelled = false;
         setFileSeconds(null);
+        setFilePreviewFrame(null);
         if (!file) return undefined;
         readVideoDuration(file).then((d) => {
             if (cancelled) return;
@@ -91,6 +159,9 @@ export default function MediaInput({
             if (d != null && d < MIN_SOURCE_SECONDS) {
                 track('SourceTooShort', { props: { seconds: String(Math.round(d)) } });
             }
+        });
+        readVideoFrame(file).then((frameUrl) => {
+            if (!cancelled && frameUrl) setFilePreviewFrame(frameUrl);
         });
         return () => { cancelled = true; };
     }, [file]);
@@ -139,6 +210,19 @@ export default function MediaInput({
             clipMaxSeconds: clipMaxSeconds || null,
             autoHook,
             autoHookStyle,
+            streamer: streamerName.trim() || null,
+            mirrorVideo,
+            webcamMode,
+            webcamBox: webcamMode === 'custom' ? webcamBox : null,
+            autoPushYouTube: autoPushYt
+                ? {
+                    enabled: true,
+                    mode: autoPushYtMode, // 'auto' | 'review'
+                    title: autoPushYtTitle.trim(),
+                    description: autoPushYtDesc.trim(),
+                    privacy: autoPushYtPrivacy,
+                }
+                : null,
             layout,
             sourceStart: range ? Math.round(range.start) : null,
             sourceEnd: range ? Math.round(range.end) : null,
@@ -147,6 +231,15 @@ export default function MediaInput({
             localStorage.setItem('os_processing_mode', processingMode);
             localStorage.setItem('os_auto_hook', autoHook ? '1' : '0');
             localStorage.setItem('os_auto_hook_style_v2', autoHookStyle);
+            localStorage.setItem('os_streamer_name', streamerName);
+            localStorage.setItem('os_mirror_video', mirrorVideo ? '1' : '0');
+            localStorage.setItem('os_webcam_mode', webcamMode);
+            if (webcamBox) localStorage.setItem('os_webcam_box', JSON.stringify(webcamBox));
+            localStorage.setItem('os_auto_push_yt', autoPushYt ? '1' : '0');
+            localStorage.setItem('os_auto_push_yt_mode', autoPushYtMode);
+            localStorage.setItem('os_auto_push_yt_title', autoPushYtTitle);
+            localStorage.setItem('os_auto_push_yt_desc', autoPushYtDesc);
+            localStorage.setItem('os_auto_push_yt_privacy', autoPushYtPrivacy);
             localStorage.setItem('os_layout', layout);
         } catch { /* ignore */ }
         if (mode === 'url' && url) {
@@ -509,36 +602,179 @@ export default function MediaInput({
                                     </select>
                                 </div>
 
+                                {/* Streamer Webcam Corner / Tracing Box Row */}
+                                {outputFormat === 'vertical' && ['auto', 'streamer_top', 'streamer_bottom'].includes(layout) && (
+                                    <div className="p-3 sm:px-4">
+                                        <WebcamBoxPicker
+                                            compact
+                                            mode={webcamMode}
+                                            box={webcamBox}
+                                            previewSrc={mode === 'file' ? filePreviewFrame : null}
+                                            onChange={({ webcam_mode: nextMode, webcam_box: nextBox }) => {
+                                                setWebcamMode(nextMode);
+                                                if (nextBox !== undefined) setWebcamBox(nextBox);
+                                            }}
+                                        />
+                                    </div>
+                                )}
+
                                 {/* Auto-Hook Titles Row with Apple Toggle Switch */}
+                                <div className="p-3 sm:px-4 space-y-2">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="flex items-center gap-3">
+                                            <label className="relative inline-flex items-center cursor-pointer select-none">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={autoHook}
+                                                    onChange={(e) => setAutoHook(e.target.checked)}
+                                                    className="sr-only peer"
+                                                />
+                                                <div className="w-10 h-6 bg-white/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600 shadow-inner" />
+                                            </label>
+                                            <span className="text-xs font-medium text-white select-none">Auto-Hook Titles</span>
+                                        </div>
+
+                                        {autoHook && (
+                                            <select
+                                                value={autoHookStyle}
+                                                onChange={(e) => setAutoHookStyle(e.target.value)}
+                                                className="h-7 px-2.5 text-[11px] rounded-lg border border-white/[0.1] bg-[#161720] text-white focus:outline-none cursor-pointer"
+                                            >
+                                                <option value="pill">Pills</option>
+                                                <option value="cyan_glow">Neon Cyan (Gamer)</option>
+                                                <option value="classic">Classic</option>
+                                                <option value="dark">Dark</option>
+                                                <option value="yellow">Yellow</option>
+                                                <option value="red">Red</option>
+                                                <option value="outline">Outline</option>
+                                                <option value="outline_yellow">Outline+</option>
+                                            </select>
+                                        )}
+                                    </div>
+                                    {autoHook && (
+                                        <input
+                                            type="text"
+                                            value={streamerName}
+                                            onChange={(e) => setStreamerName(e.target.value)}
+                                            placeholder="Streamer name for 3-4 word hooks (auto-detected on links)"
+                                            className="w-full h-8 px-2.5 text-[11.5px] rounded-lg bg-black/40 border border-white/10 text-white placeholder-white/35 focus:border-[#e31084] focus:outline-none"
+                                        />
+                                    )}
+                                </div>
+
+                                {/* Mirror Video Row (flipped before subtitles) */}
                                 <div className="p-3 sm:px-4 flex items-center justify-between gap-3">
-                                    <div className="flex items-center gap-3">
-                                        <label className="relative inline-flex items-center cursor-pointer select-none">
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
                                             <input
                                                 type="checkbox"
-                                                checked={autoHook}
-                                                onChange={(e) => setAutoHook(e.target.checked)}
+                                                checked={mirrorVideo}
+                                                onChange={(e) => setMirrorVideo(e.target.checked)}
                                                 className="sr-only peer"
                                             />
-                                            <div className="w-10 h-6 bg-white/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600 shadow-inner" />
+                                            <div className="w-10 h-6 bg-white/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#e31084] shadow-inner" />
                                         </label>
-                                        <span className="text-xs font-medium text-white select-none">Auto-Hook Titles</span>
+                                        <div className="min-w-0">
+                                            <span className="text-xs font-medium text-white select-none block">Mirror Video</span>
+                                            <span className="text-[10.5px] text-white/45 block leading-tight">
+                                                Flip horizontally before subtitles (captions stay normal)
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Auto-Push to YouTube Automation Row */}
+                                <div className="p-3 sm:px-4 space-y-2.5">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={autoPushYt}
+                                                    onChange={(e) => setAutoPushYt(e.target.checked)}
+                                                    className="sr-only peer"
+                                                />
+                                                <div className="w-10 h-6 bg-white/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#e31084] shadow-inner" />
+                                            </label>
+                                            <div className="min-w-0">
+                                                <span className="text-xs font-medium text-white select-none block">Auto-Push to YouTube</span>
+                                                <span className="text-[10.5px] text-white/45 block leading-tight">
+                                                    Direct YouTube upload when Studio clips finish (no Live Clipper pipeline)
+                                                </span>
+                                            </div>
+                                        </div>
                                     </div>
 
-                                    {autoHook && (
-                                        <select
-                                            value={autoHookStyle}
-                                            onChange={(e) => setAutoHookStyle(e.target.value)}
-                                            className="h-7 px-2.5 text-[11px] rounded-lg border border-white/[0.1] bg-[#161720] text-white focus:outline-none cursor-pointer"
-                                        >
-                                            <option value="pill">Pills</option>
-                                            <option value="cyan_glow">Neon Cyan (Gamer)</option>
-                                            <option value="classic">Classic</option>
-                                            <option value="dark">Dark</option>
-                                            <option value="yellow">Yellow</option>
-                                            <option value="red">Red</option>
-                                            <option value="outline">Outline</option>
-                                            <option value="outline_yellow">Outline+</option>
-                                        </select>
+                                    {autoPushYt && (
+                                        <div className="space-y-2.5 pt-1 pl-1 animate-fade">
+                                            <div className="grid grid-cols-2 p-1 rounded-xl bg-black/40 border border-white/10 gap-1 text-[11px]">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setAutoPushYtMode('review')}
+                                                    className={`py-1.5 px-2 rounded-lg font-medium transition-all cursor-pointer ${
+                                                        autoPushYtMode === 'review'
+                                                            ? 'bg-white/15 text-white border border-white/20'
+                                                            : 'text-white/55 hover:text-white border border-transparent'
+                                                    }`}
+                                                >
+                                                    Tick &amp; Ask Title/Desc
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setAutoPushYtMode('auto')}
+                                                    className={`py-1.5 px-2 rounded-lg font-medium transition-all cursor-pointer ${
+                                                        autoPushYtMode === 'auto'
+                                                            ? 'bg-[#e31084]/25 text-pink-100 border border-[#e31084]/45'
+                                                            : 'text-white/55 hover:text-white border border-transparent'
+                                                    }`}
+                                                >
+                                                    Auto-Upload Immediately
+                                                </button>
+                                            </div>
+
+                                            {autoPushYtMode === 'auto' && (
+                                                <div className="space-y-2">
+                                                    <input
+                                                        type="text"
+                                                        maxLength={100}
+                                                        value={autoPushYtTitle}
+                                                        onChange={(e) => setAutoPushYtTitle(e.target.value)}
+                                                        placeholder="Title (leave blank to use clip/default title) 😱"
+                                                        className="w-full h-8 px-2.5 text-xs rounded-lg bg-black/40 border border-white/10 text-white placeholder-white/35 focus:border-[#e31084] focus:outline-none"
+                                                    />
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {['😱', '🔥', '💀', '🚨', '🎮', '🤯'].map((em) => (
+                                                            <button
+                                                                key={em}
+                                                                type="button"
+                                                                onClick={() => setAutoPushYtTitle((t) => `${t}${t && !t.endsWith(' ') ? ' ' : ''}${em}`.slice(0, 100))}
+                                                                className="w-6 h-6 rounded-md bg-white/[0.06] hover:bg-white/[0.14] border border-white/10 text-xs flex items-center justify-center cursor-pointer active:scale-90"
+                                                                title={`Add ${em} to title`}
+                                                            >
+                                                                {em}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                    <textarea
+                                                        rows={2}
+                                                        maxLength={5000}
+                                                        value={autoPushYtDesc}
+                                                        onChange={(e) => setAutoPushYtDesc(e.target.value)}
+                                                        placeholder="Description & #hashtags (blank uses .env default)…"
+                                                        className="w-full p-2 text-xs rounded-lg bg-black/40 border border-white/10 text-white placeholder-white/35 focus:border-[#e31084] focus:outline-none resize-none"
+                                                    />
+                                                    <select
+                                                        value={autoPushYtPrivacy}
+                                                        onChange={(e) => setAutoPushYtPrivacy(e.target.value)}
+                                                        className="w-full h-8 px-2.5 text-xs rounded-lg bg-[#161720] border border-white/10 text-white focus:outline-none cursor-pointer"
+                                                    >
+                                                        <option value="public">Public</option>
+                                                        <option value="unlisted">Unlisted</option>
+                                                        <option value="private">Private</option>
+                                                    </select>
+                                                </div>
+                                            )}
+                                        </div>
                                     )}
                                 </div>
 

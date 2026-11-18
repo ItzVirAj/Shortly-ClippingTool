@@ -275,10 +275,80 @@ def _draw_pills(lines, font, emoji_font, font_size, box_fill, text_fill, output_
     return output_image_path, canvas_w, canvas_h
 
 
-def create_hook_image(text, target_width, output_image_path="hook_overlay.png", font_scale=1.0, style="pill",
-                      font=None):
+def _clean_streamer_label(streamer):
+    """Extract a short 1-2 word display name for a streamer/channel handle."""
+    if not streamer:
+        return ""
+    s = str(streamer).strip()
+    if not s:
+        return ""
+    # Strip URL prefixes if a channel URL was supplied
+    s = re.sub(r"^https?://(?:www\.)?(?:youtube\.com|twitch\.tv|kick\.com)/", "", s, flags=re.IGNORECASE)
+    s = s.split("/")[0].split("?")[0].lstrip("@").strip()
+    if not s:
+        return ""
+    parts = [p for p in re.split(r"[\s_]+", s) if p]
+    if not parts:
+        return ""
+    # Keep concise (1 word when long or >2 parts, else up to 2 short words)
+    if len(parts) >= 2 and len(parts[0]) + len(parts[1]) <= 12:
+        return f"{parts[0]} {parts[1]}"
+    return parts[0]
+
+
+def enforce_single_line_hook(text, streamer=None, max_words=4):
+    """Normalize a hook to a single line of 3-4 words (+ optional 1 emoji),
+    referencing ``streamer`` when provided.
     """
-    Generates a hook overlay image using pixel-based wrapping.
+    raw = re.sub(r"[\r\n]+", " ", str(text or "")).strip()
+    raw = re.sub(r"\s{2,}", " ", raw)
+    if not raw:
+        label = _clean_streamer_label(streamer)
+        return f"{label} insane moment 😱" if label else "Watch this moment 👀"
+
+    # Extract emojis so they don't eat into the 3-4 word budget
+    emojis = _EMOJI_RE.findall(raw)
+    emoji_suffix = ""
+    if emojis:
+        first_cluster = emojis[-1].strip()
+        # Keep a single emoji symbol/sequence
+        emoji_suffix = first_cluster[:2] if len(first_cluster) > 2 else first_cluster
+
+    text_no_emoji = _EMOJI_RE.sub(" ", raw)
+    text_no_emoji = re.sub(r"\s{2,}", " ", text_no_emoji).strip()
+    words = text_no_emoji.split()
+
+    label = _clean_streamer_label(streamer)
+    if label:
+        label_words = label.split()
+        primary_token = re.sub(r"[^a-zA-Z0-9]", "", label_words[0]).lower()
+        already_mentions = bool(primary_token) and (
+            primary_token in re.sub(r"[^a-zA-Z0-9\s]", "", text_no_emoji).lower()
+        )
+        if already_mentions:
+            kept = words[:max_words]
+        else:
+            # Reserve room for streamer name so total stays <= max_words (3-4 words)
+            room = max(2, max_words - len(label_words))
+            body = words[:room]
+            if not body:
+                body = ["insane", "moment"]
+            kept = (label_words + body)[:max_words]
+    else:
+        kept = words[:max_words]
+
+    result = " ".join(kept).strip()
+    if not result:
+        result = f"{label} crazy moment" if label else "Wait for it"
+    if emoji_suffix:
+        result = f"{result} {emoji_suffix}"
+    return result
+
+
+def create_hook_image(text, target_width, output_image_path="hook_overlay.png", font_scale=1.0, style="pill",
+                      font=None, single_line=False):
+    """
+    Generates a hook overlay image using pixel-based wrapping (or forced single-line auto-fit).
     target_width: The max width the box should occupy (e.g. 85% of video)
     style: one of HOOK_STYLES (pill/classic/dark/yellow/red/outline/outline_yellow)
     """
@@ -307,21 +377,23 @@ def create_hook_image(text, target_width, output_image_path="hook_overlay.png", 
     font_path, size_factor = HOOK_FONTS.get(font or default_font, HOOK_FONTS[default_font])
     base_font_size = int(target_width * size_factor)
     font_size = int(base_font_size * font_scale)
-    
-    try:
-        font = ImageFont.truetype(font_path, font_size)
-    except Exception as e:
-        print(f"⚠️ Warning: Could not load font {font_path}, using default. Error: {e}")
-        font = ImageFont.load_default()
+
+    def _load_fonts(sz):
+        try:
+            f_main = ImageFont.truetype(font_path, sz)
+        except Exception as e:
+            print(f"⚠️ Warning: Could not load font {font_path}, using default. Error: {e}")
+            f_main = ImageFont.load_default()
+        f_emoji = _load_emoji_font(sz) if _EMOJI_RE.search(text) else None
+        return f_main, f_emoji
+
+    font, emoji_font = _load_fonts(font_size)
 
     # Emoji handling: render with an emoji-capable font if one exists,
     # otherwise strip emoji instead of drawing tofu boxes.
-    emoji_font = None
-    if _EMOJI_RE.search(text):
-        emoji_font = _load_emoji_font(font_size)
-        if emoji_font is None:
-            text = _EMOJI_RE.sub("", text)
-            text = re.sub(r"[ \t]{2,}", " ", text).strip()
+    if _EMOJI_RE.search(text) and emoji_font is None:
+        text = _EMOJI_RE.sub("", text)
+        text = re.sub(r"[ \t]{2,}", " ", text).strip()
 
     # Wrap text logic (Pixel-based)
     dummy_img = Image.new('RGBA', (1, 1))
@@ -329,43 +401,56 @@ def create_hook_image(text, target_width, output_image_path="hook_overlay.png", 
 
     max_text_width = target_width - (2 * padding_x)
 
-    # Handle manual newlines first
-    paragraphs = text.split('\n')
-    lines = []
+    if single_line:
+        flat = re.sub(r"[\r\n]+", " ", text).strip()
+        flat = re.sub(r"\s{2,}", " ", flat)
+        # Auto-fit font size down proportionally so the 3-4 word hook NEVER wraps to 2 lines
+        measured = _measure_width(draw, flat, font, emoji_font)
+        if measured > max_text_width and measured > 0:
+            ratio = max(0.48, (max_text_width / measured) * 0.96)
+            fitted_size = max(18, int(font_size * ratio))
+            if fitted_size < font_size:
+                font_size = fitted_size
+                font, emoji_font = _load_fonts(font_size)
+        lines = [flat]
+    else:
+        # Handle manual newlines first
+        paragraphs = text.split('\n')
+        lines = []
 
-    for p in paragraphs:
-        if not p.strip():
-            lines.append("")
-            continue
-
-        words = p.split()
-        current_line = []
-
-        for word in words:
-            # Test if adding word fits
-            test_line = ' '.join(current_line + [word])
-            w = _measure_width(draw, test_line, font, emoji_font)
-
-            if w <= max_text_width:
-                current_line.append(word)
+        for p in paragraphs:
+            if not p.strip():
+                lines.append("")
                 continue
 
-            # Word doesn't fit on the current line
+            words = p.split()
+            current_line = []
+
+            for word in words:
+                # Test if adding word fits
+                test_line = ' '.join(current_line + [word])
+                w = _measure_width(draw, test_line, font, emoji_font)
+
+                if w <= max_text_width:
+                    current_line.append(word)
+                    continue
+
+                # Word doesn't fit on the current line
+                if current_line:
+                    lines.append(' '.join(current_line))
+                    current_line = []
+
+                if _measure_width(draw, word, font, emoji_font) <= max_text_width:
+                    current_line = [word]
+                else:
+                    # Single word wider than the box: hard-wrap it character-wise
+                    # so it can't get cut off at the edges.
+                    pieces = _break_long_word(draw, word, font, emoji_font, max_text_width)
+                    lines.extend(pieces[:-1])
+                    current_line = [pieces[-1]] if pieces else []
+
             if current_line:
                 lines.append(' '.join(current_line))
-                current_line = []
-
-            if _measure_width(draw, word, font, emoji_font) <= max_text_width:
-                current_line = [word]
-            else:
-                # Single word wider than the box: hard-wrap it character-wise
-                # so it can't get cut off at the edges.
-                pieces = _break_long_word(draw, word, font, emoji_font, max_text_width)
-                lines.extend(pieces[:-1])
-                current_line = [pieces[-1]] if pieces else []
-
-        if current_line:
-            lines.append(' '.join(current_line))
 
     if pills:
         return _draw_pills(lines, font, emoji_font, font_size, box_fill, text_fill,
@@ -455,7 +540,8 @@ def create_hook_image(text, target_width, output_image_path="hook_overlay.png", 
     return output_image_path, canvas_w, canvas_h
 
 def _auto_place(video_path, text, target_box_width, hook_filename, font_scale, style, font,
-                video_width, video_height, duration, ranges, has_captions, first_dims):
+                video_width, video_height, duration, ranges, has_captions, first_dims,
+                single_line=False):
     """position='auto': pick the height (and, only if every height covers a
     face, a smaller text) with hook_placement. Returns {"image": (path, w, h),
     "y_px", "y", "scale"}, or None to fall back to the legacy top spot (no
@@ -481,7 +567,8 @@ def _auto_place(video_path, text, target_box_width, hook_filename, font_scale, s
     def measure(rel):
         if rel not in dims:
             _, w, h = create_hook_image(text, target_box_width, hook_filename,
-                                        font_scale=font_scale * rel, style=style, font=font)
+                                        font_scale=font_scale * rel, style=style, font=font,
+                                        single_line=single_line)
             dims[rel] = (w, h)
         w, h = dims[rel]
         return w / video_width, h / video_height
@@ -499,7 +586,8 @@ def _auto_place(video_path, text, target_box_width, hook_filename, font_scale, s
         return None
     # The temp PNG holds the last size measured: render the chosen one again.
     _, w, h = create_hook_image(text, target_box_width, hook_filename,
-                                font_scale=font_scale * rel, style=style, font=font)
+                                font_scale=font_scale * rel, style=style, font=font,
+                                single_line=single_line)
     n_faces = sum(len(f) for f in frames)
     print(f"   🎯 Hook placement: y={y:.2f} scale={rel:g} face cover={cost:.2f} "
           f"({n_faces} faces in {len(frames)} frames, bands={bands})")
@@ -509,7 +597,7 @@ def _auto_place(video_path, text, target_box_width, hook_filename, font_scale, s
 
 def add_hook_to_video(video_path, text, output_path, position="top", font_scale=1.0, duration=None, style="pill",
                       also=None, font=None, layout_ranges=None, has_captions=True,
-                      mark=None):
+                      mark=None, single_line=False):
     """
     Overlays text hook onto video.
     position: 'top', 'center', 'bottom', or 'auto' (hook_placement: off the
@@ -563,12 +651,13 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
     
     try:
         img_path, box_w, box_h = create_hook_image(text, target_box_width, hook_filename, font_scale=font_scale, style=style,
-                                                       font=font)
+                                                       font=font, single_line=single_line)
         placed = None
         if position == "auto":
             placed = _auto_place(video_path, text, target_box_width, hook_filename, font_scale,
                                  style, font, video_width, video_height, duration,
-                                 layout_ranges, has_captions, (box_w, box_h))
+                                 layout_ranges, has_captions, (box_w, box_h),
+                                 single_line=single_line)
             if placed:
                 img_path, box_w, box_h = placed["image"]
 

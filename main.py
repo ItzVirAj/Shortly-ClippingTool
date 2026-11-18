@@ -84,7 +84,7 @@ OUTPUT — RETURN ONLY VALID JSON (no markdown, no comments). Order clips by pre
       "video_description_for_tiktok": "<description for TikTok oriented to get views>",
       "video_description_for_instagram": "<description for Instagram oriented to get views>",
       "video_title_for_youtube_short": "<title for YouTube Short oriented to get views 100 chars max>",
-      "viral_hook_text": "<SHORT punchy text overlay (max 10 words) with 1-2 fitting emojis. MUST BE IN THE SAME LANGUAGE AS THE VIDEO TRANSCRIPT. Examples: 'POV: You realized... 😳', 'Did you know? 🤯', 'Stop doing this! 🚫'>"
+      "viral_hook_text": "<SINGLE LINE punchy hook strictly 3 to 4 words (+ optional 1 emoji), relative to the streamer being recorded. MUST BE IN THE SAME LANGUAGE AS THE VIDEO TRANSCRIPT.>"
     }}
   ]
 }}
@@ -1102,6 +1102,11 @@ def _download_youtube_video(url, output_dir=".", on_audio=None, allow_paid=True,
             import ssrf_guard
             ssrf_guard.assert_public_urls(info)
         sanitized = sanitize_filename(info.get('title', 'youtube_video'))
+        # Auto-capture the streamer/channel name from video metadata when not explicitly provided
+        uploader = (info.get('channel') or info.get('uploader') or '').strip()
+        if uploader and not os.environ.get("CONTEXT_STREAMER", "").strip():
+            os.environ["CONTEXT_STREAMER"] = uploader
+            print(f"🎮 Detected streamer/channel context: {uploader}")
         # Only when the whole source is far bigger than what was paid for: a
         # ranged fetch goes through ffmpeg at ~1-2.5x realtime, while a native
         # download of a source a bit over the cap takes seconds. A 21-min video
@@ -1437,13 +1442,14 @@ def auto_hook_clip(clip_path, clip, captions=None, mark=False):
     text = (clip.get('viral_hook_text') or '').strip()
     if not text:
         return None
+    from hooks import add_hook_to_video, HOOK_STYLES, enforce_single_line_hook
+    text = enforce_single_line_hook(text, streamer=os.environ.get("CONTEXT_STREAMER"), max_words=4)
     style = os.environ.get("AUTO_HOOK_STYLE", "pill")
     try:
         seconds = float(os.environ.get("AUTO_HOOK_SECONDS", "5"))
     except ValueError:
         seconds = 5.0
     try:
-        from hooks import add_hook_to_video, HOOK_STYLES
         if style not in HOOK_STYLES:
             style = "pill"
         output_dir = os.path.dirname(clip_path)
@@ -1454,7 +1460,7 @@ def auto_hook_clip(clip_path, clip, captions=None, mark=False):
         config = {"text": text, "style": style, "position": "auto",
                   "duration_seconds": seconds}
         place = {"position": "auto", "layout_ranges": clip.get('layout_ranges'),
-                 "has_captions": bool(captions)}
+                 "has_captions": bool(captions), "single_line": True}
 
         def note(result):
             if isinstance(result, dict) and result.get("y") is not None:
@@ -1524,9 +1530,40 @@ def trim_subtitle_band(input_video, band):
         return input_video
 
 
+def preprocess_clip_video(input_video, subtitle_band=None, mirror=False):
+    """Apply optional pre-reframe filters (source subtitle trim and/or horizontal mirror) in one pass.
+
+    Returns the temporary output path, or ``input_video`` unchanged when nothing
+    needs to be applied. Caller deletes the copy when it differs from ``input_video``.
+    """
+    filters = []
+    if subtitle_band:
+        import burned_subtitles
+        filters.append(burned_subtitles.crop_filter(subtitle_band))
+    if mirror:
+        filters.append("hflip")
+    if not filters:
+        return input_video
+
+    root, ext = os.path.splitext(input_video)
+    suffix = "_mirrored" if mirror and not subtitle_band else "_prep"
+    out = f"{root}{suffix}{ext or '.mp4'}"
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error", "-i", input_video,
+             "-vf", ",".join(filters),
+             *video_encode_args(QUALITY_FAST), "-c:a", "copy", out],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            timeout=1800)
+        return out
+    except (subprocess.SubprocessError, OSError) as e:
+        print(f"   ⚠️ Could not preprocess clip ({','.join(filters)}: {e}) — rendering as is.")
+        return input_video
+
+
 def render_clip(input_video, final_output_video, output_format="auto",
                 force_strategy=None, crop_overrides=None, watermark=False,
-                subtitle_band=None):
+                subtitle_band=None, mirror=False):
     """Route a cut clip through the right renderer for the chosen output format.
     vertical/auto -> 9:16 reframe, square -> 1:1 reframe, horizontal -> keep.
     ``force_strategy`` (e.g. 'WIDE'/'TRACK') pins every scene's layout — the
@@ -1538,14 +1575,16 @@ def render_clip(input_video, final_output_video, output_format="auto",
     ``subtitle_band`` (the job metadata's ``source_subtitle_band``) trims the
     source's own burned-in subtitles off the bottom first, so our captions are
     the only text layer. Every render from the source passes it: the job, the
-    recut and the editor's re-render."""
-    trimmed = trim_subtitle_band(input_video, subtitle_band)
+    recut and the editor's re-render.
+    ``mirror`` horizontally flips the video before reframing/captioning so
+    subtitles and hooks rendered downstream stay unmirrored."""
+    prepared = preprocess_clip_video(input_video, subtitle_band=subtitle_band, mirror=mirror)
     try:
-        return _render_clip(trimmed, final_output_video, output_format,
+        return _render_clip(prepared, final_output_video, output_format,
                             force_strategy, crop_overrides, watermark)
     finally:
-        if trimmed != input_video and os.path.exists(trimmed):
-            os.remove(trimmed)
+        if prepared != input_video and os.path.exists(prepared):
+            os.remove(prepared)
 
 
 def _render_clip(input_video, final_output_video, output_format,
@@ -2479,9 +2518,8 @@ def get_viral_clips(transcript_result, video_duration, viewer_clips=None):
             elif len(title) < 40:
                 title = (title + " - Key Highlights").strip()[:70]
 
-            hook_words = hook.split()
-            if len(hook_words) > 10:
-                hook = " ".join(hook_words[:10])
+            from hooks import enforce_single_line_hook
+            hook = enforce_single_line_hook(hook, streamer=ctx_streamer, max_words=4)
 
             if len(desc_tt) > 200:
                 desc_tt = desc_tt[:200].rsplit(" ", 1)[0]
@@ -2984,6 +3022,21 @@ if __name__ == '__main__':
         except Exception as e:
             print(f"⚠️ Burned-in subtitle check skipped ({e}).")
 
+    mirror_video = os.environ.get("MIRROR_VIDEO", "").strip().lower() in ("1", "true", "yes")
+    if mirror_video:
+        print("🪞 Mirror video enabled — clips will be horizontally flipped before subtitles.")
+        # Since cut_clip flips the clip horizontally BEFORE render_clip/reframe_v2 runs,
+        # mirror any explicit webcam corner or user-drawn custom tracing box so it still
+        # locks onto the exact same facecam pixels after the flip.
+        raw_wc_mode = os.environ.get("WEBCAM_MODE", "").strip()
+        raw_wc_box = os.environ.get("WEBCAM_BOX", "").strip()
+        if raw_wc_mode or raw_wc_box:
+            import camera_inset as _ci
+            m_mode, m_box = _ci.mirror_webcam_config(raw_wc_mode or "auto", raw_wc_box or None)
+            os.environ["WEBCAM_MODE"] = m_mode
+            if m_box is not None:
+                os.environ["WEBCAM_BOX"] = json.dumps(m_box)
+
     # 2. Decision: Analyze clips or process whole?
     if args.skip_analysis:
         print("⏩ Skipping analysis, processing entire video...")
@@ -2994,7 +3047,7 @@ if __name__ == '__main__':
         if (not output_file or os.path.isdir(output_file)
                 or output_file.endswith(("/", os.sep))):
             output_file = os.path.join(output_dir, f"{video_title}_vertical.mp4")
-        render_clip(input_video, output_file, output_format)
+        render_clip(input_video, output_file, output_format, mirror=mirror_video)
     else:
         # Get duration (needed by both the transcript and the vision path).
         cap = cv2.VideoCapture(input_video)
@@ -3148,6 +3201,8 @@ if __name__ == '__main__':
             # --keep-original) or in uploads/ (upload jobs).
             clips_data['source_video'] = os.path.basename(input_video)
             clips_data['output_format'] = output_format
+            if mirror_video:
+                clips_data['mirror_video'] = True
             if source_subtitle_band:
                 clips_data['source_subtitle_band'] = source_subtitle_band
             metadata_file = os.path.join(output_dir, f"{video_title}_metadata.json")
@@ -3169,7 +3224,9 @@ if __name__ == '__main__':
 
                 try:
                     # ffmpeg cut — re-encoding for precision on strict seconds
-                    cut_clip(input_video, clip_temp_path, start, end, i + 1)
+                    # When mirror_video is True, hflip runs here in the same pass
+                    # BEFORE reframing, hooks, and subtitles (subtitles stay unmirrored).
+                    cut_clip(input_video, clip_temp_path, start, end, i + 1, mirror=mirror_video)
 
                     # Layer order: the canonical reframe stays CLEAN, the hook
                     # is a derived hooked_ file, captions go last on top of

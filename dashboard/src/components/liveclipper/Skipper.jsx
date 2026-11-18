@@ -5,6 +5,7 @@ import { getApiUrl } from '../../config';
 import SkipperPortrait from './SkipperPortrait';
 import { LookPicker } from '../../captions/CaptionPanel';
 import { defaultLook, useClipFrame } from '../../captions/clipCaptionState';
+import WebcamBoxPicker from '../WebcamBoxPicker';
 
 const DEFAULT_LAYOUT = 'streamer_bottom';
 
@@ -82,6 +83,12 @@ export default function Skipper({ captureId }) {
   const [look, setLook] = useState(defaultLook);
   const [layout, setLayout] = useState(DEFAULT_LAYOUT);
   const [layoutSaving, setLayoutSaving] = useState(false);
+  const [mirror, setMirror] = useState(false);
+  const [mirrorSaving, setMirrorSaving] = useState(false);
+  const [webcamMode, setWebcamMode] = useState('auto');
+  const [webcamBox, setWebcamBox] = useState(null);
+  const [webcamSaving, setWebcamSaving] = useState(false);
+  const [snapshotTick, setSnapshotTick] = useState(() => Date.now());
   const [loadError, setLoadError] = useState(false);
   const frame = useClipFrame(
     setup && captureId
@@ -117,6 +124,13 @@ export default function Skipper({ captureId }) {
   const saved = data.settings.skipper_look;
   const activeLayout = data.settings.skipper_layout || DEFAULT_LAYOUT;
   const effectiveLayout = (setup && !auto) || layoutSaving ? layout : activeLayout;
+  const activeMirror = !!data.settings.skipper_mirror;
+  const effectiveMirror = (setup && !auto) || mirrorSaving ? mirror : activeMirror;
+  const activeWebcamMode = data.settings.skipper_webcam_mode || 'auto';
+  const activeWebcamBox = data.settings.skipper_webcam_box || null;
+  const effectiveWebcamMode = (setup && !auto) || webcamSaving ? webcamMode : activeWebcamMode;
+  const effectiveWebcamBox = (setup && !auto) || webcamSaving ? webcamBox : activeWebcamBox;
+  const snapshotUrl = getApiUrl(`/api/liveclipper/snapshot?t=${snapshotTick}`);
 
   const captionLabel =
     saved?.captionsEnabled === false
@@ -136,7 +150,15 @@ export default function Skipper({ captureId }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           enabled,
-          ...(enabled ? { look, layout: effectiveLayout } : {}),
+          ...(enabled
+            ? {
+                look,
+                layout: effectiveLayout,
+                mirror: effectiveMirror,
+                webcam_mode: effectiveWebcamMode,
+                webcam_box: effectiveWebcamMode === 'custom' ? effectiveWebcamBox : null,
+              }
+            : {}),
         }),
       });
       setError('');
@@ -169,6 +191,56 @@ export default function Skipper({ captureId }) {
       setError(e.message || 'Could not switch framing layout');
     } finally {
       setLayoutSaving(false);
+    }
+  }
+
+  async function handleQuickMirrorToggle(nextMirror) {
+    if (mirrorSaving) return;
+    const previous = effectiveMirror;
+    setMirror(nextMirror);
+    if (setup && !auto) return;
+    setMirrorSaving(true);
+    try {
+      await apiJson('/api/publishing/skipper', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mirror: nextMirror }),
+      });
+      setError('');
+      await refresh();
+    } catch (e) {
+      setMirror(previous);
+      setError(e.message || 'Could not update mirror setting');
+    } finally {
+      setMirrorSaving(false);
+    }
+  }
+
+  async function handleQuickWebcamChange({ webcam_mode: nextMode, webcam_box: nextBox }) {
+    if (webcamSaving) return;
+    const prevMode = effectiveWebcamMode;
+    const prevBox = effectiveWebcamBox;
+    setWebcamMode(nextMode);
+    setWebcamBox(nextBox ?? null);
+    if (setup && !auto) return;
+    setWebcamSaving(true);
+    try {
+      await apiJson('/api/publishing/skipper', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          webcam_mode: nextMode,
+          webcam_box: nextMode === 'custom' ? nextBox : null,
+        }),
+      });
+      setError('');
+      await refresh();
+    } catch (e) {
+      setWebcamMode(prevMode);
+      setWebcamBox(prevBox);
+      setError(e.message || 'Could not update webcam box');
+    } finally {
+      setWebcamSaving(false);
     }
   }
 
@@ -212,6 +284,34 @@ export default function Skipper({ captureId }) {
           ))}
         </select>
       </label>
+      {effectiveLayout === 'streamer_bottom' && (
+        <WebcamBoxPicker
+          mode={effectiveWebcamMode}
+          box={effectiveWebcamBox}
+          previewSrc={snapshotUrl}
+          onRefreshPreview={() => setSnapshotTick(Date.now())}
+          disabled={busy || webcamSaving}
+          onChange={handleQuickWebcamChange}
+        />
+      )}
+      <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08]">
+        <div className="min-w-0">
+          <span className="text-xs font-medium text-white block">Mirror video</span>
+          <span className="text-[11px] text-white/50 block leading-tight">
+            Flip horizontally before Whisper &amp; captions (subtitles stay normal)
+          </span>
+        </div>
+        <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
+          <input
+            type="checkbox"
+            checked={effectiveMirror}
+            disabled={busy || mirrorSaving}
+            onChange={(e) => handleQuickMirrorToggle(e.target.checked)}
+            className="sr-only peer"
+          />
+          <div className="w-10 h-6 bg-white/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#e31084] shadow-inner" />
+        </label>
+      </div>
       {setup && !auto ? (
         <div className="lc-bot-setup">
           <h3>Caption style</h3>
@@ -235,6 +335,9 @@ export default function Skipper({ captureId }) {
             else {
               setLook(saved || defaultLook);
               setLayout(activeLayout);
+              setMirror(activeMirror);
+              setWebcamMode(activeWebcamMode);
+              setWebcamBox(activeWebcamBox);
               setSetup(true);
             }
           }}

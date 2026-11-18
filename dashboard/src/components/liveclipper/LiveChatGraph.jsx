@@ -12,6 +12,7 @@ import {
   Flame,
   Coffee,
   Scale,
+  Scissors,
   X,
   Loader2
 } from 'lucide-react';
@@ -85,6 +86,9 @@ export default function LiveChatGraph({
   detectorConfig = null,
   msgsPerMin = 0,
   msgsPerSec = 0,
+  totalSpikes = null,
+  clipsCut = null,
+  clipsCutting = 0,
   onDetectorUpdate = null,
 }) {
   const width = 800;
@@ -310,28 +314,84 @@ export default function LiveChatGraph({
     });
   };
 
-  return (
-    <div className="w-full bg-paper2/50 border border-white/10 rounded-2xl p-4 sm:p-5 relative overflow-hidden backdrop-blur-xl shadow-xl space-y-3">
-      {/* Header bar with title, quick filter switcher, and legend */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-white/10 pb-3">
-        {/* Title, Live status, and Chat Velocity Speedometer */}
-        <div className="flex flex-wrap items-center gap-2 font-mono text-ink">
-          <Activity size={15} className="text-brass animate-pulse" />
-          <span className="font-semibold uppercase tracking-wider text-micro">Live Chat Velocity</span>
-          <span className="text-muted text-[11px]">(rolling 10m window)</span>
-          <InfoBead
-            title="Live Chat Velocity Graph"
-            desc="Displays real-time message volume and baseline. When the orange Chat Rate crosses above the amber Trigger Level, a clip is created!"
-            lowResult="If chat peaks below the amber line, no clip is cut because the surge wasn't strong enough."
-            highResult="Click 'Aggressive' or drag the slider down to lower the trigger line so smaller peaks cut clips!"
-            example="In your graph: Baseline ~12 msgs, peaks ~25 msgs. Setting 2.0× brings the trigger line to ~24 msgs!"
-            align="left"
-          />
+  const spikeTotalCount = totalSpikes ?? spikes.length;
+  const clipsCutCount = clipsCut ?? 0;
 
-          {/* Real-time Messages/Min Speed Badge */}
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-brass/10 border border-brass/25 font-mono text-micro text-ink ml-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-ok animate-pulse" />
-            <span>Speed: <strong className="text-brass font-bold">~{msgsPerMin} msgs/min</strong>{msgsPerSec > 0 ? ` (${msgsPerSec}/s)` : ''}</span>
+  return (
+    <div className="w-full bg-paper2/60 border border-white/10 rounded-2xl p-4 sm:p-5 relative overflow-hidden backdrop-blur-2xl shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_14px_36px_-16px_rgba(0,0,0,0.55)] space-y-3.5">
+      {/* Header bar with title, live spikes/clips metrics, and spike controls toggle */}
+      <div className="flex flex-col gap-3 border-b border-white/10 pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          {/* Title, Live status, and Chat Velocity Speedometer */}
+          <div className="flex flex-wrap items-center gap-2 font-mono text-ink">
+            <Activity size={15} className="text-[#ff66b2] animate-pulse" />
+            <span className="font-semibold uppercase tracking-wider text-micro">Live Chat Velocity</span>
+            <span className="text-muted text-[11px]">(rolling 10m window)</span>
+            <InfoBead
+              title="Live Chat Velocity Graph"
+              desc="Displays real-time message volume and baseline. When the orange Chat Rate crosses above the amber Trigger Level, a clip is created!"
+              lowResult="If chat peaks below the amber line, no clip is cut because the surge wasn't strong enough."
+              highResult="Click 'Spike Controls' to pick 'Aggressive' or lower the surge multiplier so smaller peaks cut clips!"
+              example="In your graph: Baseline ~12 msgs, peaks ~25 msgs. Setting 2.0× brings the trigger line to ~24 msgs!"
+              align="left"
+            />
+
+            {/* Real-time Messages/Min Speed Badge */}
+            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/[0.06] border border-white/[0.12] font-mono text-micro text-ink">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="tabular-nums">
+                Speed: <strong className="text-white font-semibold">~{msgsPerMin} msgs/min</strong>
+                {msgsPerSec > 0 ? ` (${msgsPerSec}/s)` : ''}
+              </span>
+            </div>
+          </div>
+
+          {/* Live Spikes & Clips Counters + Spike Controls Toggle */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-500/12 border border-rose-500/25 text-xs font-mono text-rose-200 tabular-nums"
+              title="Total spikes detected in this session"
+            >
+              <Zap size={12} className="text-rose-400" />
+              <span>Spikes:</span>
+              <strong className="text-white font-semibold">{spikeTotalCount}</strong>
+            </div>
+
+            <div
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/12 border border-emerald-500/25 text-xs font-mono text-emerald-200 tabular-nums"
+              title="Total clips cut in this session"
+            >
+              <Scissors size={12} className="text-emerald-400" />
+              <span>Clips cut:</span>
+              <strong className="text-white font-semibold">{clipsCutCount}</strong>
+            </div>
+
+            {clipsCutting > 0 && (
+              <div
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#e31084]/15 border border-[#e31084]/35 text-xs font-mono text-pink-200 tabular-nums"
+                title="Clips currently being cut or processed"
+              >
+                <Loader2 size={12} className="animate-spin text-[#ff66b2]" />
+                <span>Cutting {clipsCutting}…</span>
+              </div>
+            )}
+
+            {/* Spike Controls Toggle Button */}
+            <button
+              type="button"
+              aria-expanded={showFilterDrawer}
+              onClick={() => setShowFilterDrawer((prev) => !prev)}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border text-xs font-medium transition-all duration-150 cursor-pointer active:scale-[0.97] ${
+                showFilterDrawer
+                  ? 'btn-brand-accent'
+                  : 'bg-white/[0.07] text-white/90 hover:text-white hover:bg-white/[0.13] border-white/[0.14]'
+              }`}
+              title="Toggle live spike detection controls without restarting stream"
+            >
+              <Sliders size={12} />
+              <span>Spike Controls</span>
+              {showFilterDrawer ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </button>
           </div>
         </div>
 
@@ -358,9 +418,9 @@ export default function LiveChatGraph({
           </div>
 
           {/* Trigger Level Guideline (The secret ingredient!) */}
-          <div className="flex items-center gap-1.5 bg-brass/10 px-2 py-0.5 rounded border border-brass/30" title="When Chat Rate rises above this line, a clip is triggered!">
-            <span className="w-2.5 h-0.5 bg-brass border-t border-dotted border-brass" />
-            <span className="text-brass font-semibold">Trigger: {activeRatio}× (~{currentTriggerThreshold} msgs)</span>
+          <div className="flex items-center gap-1.5 bg-white/[0.06] px-2.5 py-0.5 rounded-full border border-white/[0.12]" title="When Chat Rate rises above this line, a clip is triggered!">
+            <span className="w-2.5 h-0.5 bg-amber-300 border-t border-dotted border-amber-300" />
+            <span className="text-amber-200 font-semibold">Trigger: {activeRatio}× (~{currentTriggerThreshold} msgs)</span>
             <InfoBead
               title="Clip Trigger Level"
               desc={`A clip is cut when chat surges above this line (currently ${activeRatio}× baseline of last 3 min, min ${activeCount} msgs). If peaks don't reach this line, lower the sensitivity multiplier!`}
@@ -369,42 +429,21 @@ export default function LiveChatGraph({
             />
           </div>
 
-          <div className="flex items-center gap-1.5" title="Confirmed clip cut moment">
-            <span className="w-2 h-2 rounded-full bg-coral/80" />
-            <span className="text-coral">Spike ({spikes.length})</span>
-          </div>
-
           {/* Audio Loudness & Scream Indicator */}
           {audioEnergy && audioEnergy.length > 0 && (
-            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-purple-500/10 border border-purple-500/30" title="Audio RMS volume energy. Spikes +6dB above floor flag shout/laugh reactions!">
+            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/30" title="Audio RMS volume energy. Spikes +6dB above floor flag shout/laugh reactions!">
               <Volume2 size={12} className="text-purple-400" />
-              <span className="text-purple-400 font-mono text-[10px]">Audio Loudness ({visibleAudioPeaks.length} Peaks)</span>
+              <span className="text-purple-300 font-mono text-[10px]">Audio Loudness ({visibleAudioPeaks.length} Peaks)</span>
             </div>
           )}
 
           {/* YouTube Most Replayed Heatmap Indicator */}
           {heatmap && heatmap.length > 0 && (
-            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#ff4d4d]/10 border border-[#ff4d4d]/30" title="YouTube viewer retention graph ('Most replayed')">
+            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#ff4d4d]/10 border border-[#ff4d4d]/30" title="YouTube viewer retention graph ('Most replayed')">
               <Flame size={12} className="text-[#ff4d4d]" />
               <span className="text-[#ff4d4d] font-mono text-[10px]">Retention Heatmap</span>
             </div>
           )}
-
-          {/* Filter Controls Toggle Button */}
-          <button
-            type="button"
-            onClick={() => setShowFilterDrawer((prev) => !prev)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-mono transition-all duration-200 cursor-pointer active:scale-95 ${
-              showFilterDrawer
-                ? 'bg-brass text-brassink font-bold border-brass shadow-xs'
-                : 'bg-white/[0.04] text-muted hover:text-ink hover:bg-white/[0.08] border-white/10'
-            }`}
-            title="Adjust live detection sensitivity filters without restarting stream"
-          >
-            <Sliders size={12} />
-            <span>Sensitivity</span>
-            {showFilterDrawer ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-          </button>
         </div>
       </div>
 

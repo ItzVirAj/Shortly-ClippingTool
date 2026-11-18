@@ -36,6 +36,7 @@ export default function AutoShortsPipelineModal({
   const [reframingLayout, setReframingLayout] = useState('auto');
   const [processingMode, setProcessingMode] = useState('auto'); // 'auto' (Gemini) | 'manual' (Free/BYO)
   const [subtitleStyle, setSubtitleStyle] = useState('karaoke');
+  const [mirrorVideo, setMirrorVideo] = useState(Boolean(clip?.mirror_video));
 
   // Pipeline execution state
   const [pipelineStage, setPipelineStage] = useState('config'); // 'config' | 'processing' | 'complete'
@@ -74,7 +75,7 @@ export default function AutoShortsPipelineModal({
     try {
       if (onApprove) {
         try {
-          await onApprove(clip.id);
+          await onApprove(clip.id, { mirror_video: mirrorVideo });
         } catch (approveErr) {
           console.warn('Approval note:', approveErr);
         }
@@ -341,6 +342,25 @@ export default function AutoShortsPipelineModal({
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* 5. Mirror Video Toggle (Applied before subtitles) */}
+              <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-black/30 border border-white/10">
+                <div className="min-w-0">
+                  <span className="text-xs font-medium text-white block">5. Mirror Video</span>
+                  <span className="text-[11px] text-white/50 block leading-tight">
+                    Flip horizontally before subtitles (captions stay normal)
+                  </span>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={mirrorVideo}
+                    onChange={(e) => setMirrorVideo(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-10 h-6 bg-white/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#e31084] shadow-inner" />
+                </label>
               </div>
             </div>
           )}

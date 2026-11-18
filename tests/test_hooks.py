@@ -152,3 +152,31 @@ def test_pill_hook_image_stacks_one_box_per_line(tmp_path):
     alpha_rows = [any(img.getpixel((x, y))[3] > 200 for x in range(0, img.width, 4))
                   for y in range(img.height)]
     assert sum(alpha_rows) > 0
+
+
+class TestSingleLineStreamerHooks:
+    def test_trims_to_4_words_single_line_and_references_streamer(self):
+        from hooks import enforce_single_line_hook
+
+        # Already mentions streamer -> keeps <= 4 words + 1 emoji, single line
+        h1 = enforce_single_line_hook("KRYO broke GTA\nwith insane luck 😱🔥", streamer="KRYO")
+        assert "\n" not in h1
+        assert h1.startswith("KRYO ")
+        words_only = [w for w in h1.split() if not _EMOJI_RE.fullmatch(w)]
+        assert len(words_only) <= 4
+
+        # Missing streamer -> injects streamer name while staying <= 4 words
+        h2 = enforce_single_line_hook("Wait what just happened right now 😱", streamer="@KRYO")
+        assert "\n" not in h2
+        assert "KRYO" in h2
+        words_only2 = [w for w in h2.split() if not _EMOJI_RE.fullmatch(w)]
+        assert len(words_only2) <= 4
+
+    def test_single_line_image_never_wraps_height(self, tmp_path):
+        out_multi = tmp_path / "multi.png"
+        out_single = tmp_path / "single.png"
+        text = "KRYO broke GTA physics 😱"
+        _, _, h_single = create_hook_image(text, 420, str(out_single), style="pill", single_line=True)
+        _, _, h_multi = create_hook_image(text, 420, str(out_multi), style="pill", single_line=False)
+        assert h_single <= h_multi
+        assert h_single > 0

@@ -17,12 +17,15 @@ import {
   Scissors, 
   ExternalLink,
   Sparkles,
-  X
+  X,
+  Youtube,
+  Send
 } from 'lucide-react';
 import { apiJson } from '../lib/api';
 import { getApiUrl } from '../config';
+import PushToYouTubeModal from './PushToYouTubeModal';
 
-export default function HistoryTab({ onReopenProject }) {
+export default function HistoryTab({ onReopenProject, onConnectYouTube }) {
   const [videos, setVideos] = useState(null);
   const [projects, setProjects] = useState({});
   const [reopening, setReopening] = useState(null);
@@ -43,6 +46,32 @@ export default function HistoryTab({ onReopenProject }) {
   const [deleteAllType, setDeleteAllType] = useState('all');
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const [actionSuccess, setActionSuccess] = useState('');
+
+  // Multi-select tickmarks & direct Push to YouTube modal
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [pushModalClips, setPushModalClips] = useState([]);
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const openPushForClips = (clipList) => {
+    const mapped = clipList.map((c) => ({
+      clip_id: c.id,
+      job_id: c.job_id,
+      filename: c.filename,
+      title: c.title || '',
+      description: '',
+      video_url: c.view_url,
+      duration: c.duration,
+    }));
+    if (mapped.length) setPushModalClips(mapped);
+  };
 
   const fetchLibrary = async () => {
     setLoading(true);
@@ -223,6 +252,21 @@ export default function HistoryTab({ onReopenProject }) {
 
         {/* Global Action Buttons */}
         <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          {selectedIds.size > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                const chosen = (videos || []).filter((v) => selectedIds.has(v.id));
+                openPushForClips(chosen);
+              }}
+              className="btn-brand-accent inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold active:scale-95 transition-all cursor-pointer"
+              title="Push all ticked videos directly to YouTube"
+            >
+              <Youtube size={14} />
+              <span>Push to YouTube ({selectedIds.size})</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => handleOpenFolder(null)}
@@ -331,8 +375,42 @@ export default function HistoryTab({ onReopenProject }) {
           </button>
         </div>
 
-        {/* Real-time Search Box */}
-        <div className="relative min-w-[220px] sm:w-64">
+        {/* Real-time Search Box + Tickmark Selection Controls */}
+        <div className="flex flex-wrap items-center gap-2">
+          {filteredVideos.length > 0 && (
+            <div className="flex items-center gap-1.5 text-xs font-mono">
+              <button
+                type="button"
+                onClick={() => {
+                  const allSelected = filteredVideos.every((v) => selectedIds.has(v.id));
+                  if (allSelected) {
+                    setSelectedIds(new Set());
+                  } else {
+                    setSelectedIds(new Set(filteredVideos.map((v) => v.id)));
+                  }
+                }}
+                className="px-3 py-1.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.11] border border-white/10 text-white/80 hover:text-white transition-all cursor-pointer active:scale-95"
+              >
+                {filteredVideos.every((v) => selectedIds.has(v.id)) && filteredVideos.length > 0
+                  ? 'Clear Ticks'
+                  : `Tick All (${filteredVideos.length})`}
+              </button>
+              {selectedIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const chosen = (videos || []).filter((v) => selectedIds.has(v.id));
+                    openPushForClips(chosen);
+                  }}
+                  className="btn-brand-accent inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer active:scale-95"
+                >
+                  <Send size={12} />
+                  <span>Push ({selectedIds.size}) to YT</span>
+                </button>
+              )}
+            </div>
+          )}
+          <div className="relative min-w-[200px] sm:w-60">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
           <input
             type="text"
@@ -350,6 +428,7 @@ export default function HistoryTab({ onReopenProject }) {
               <X size={12} />
             </button>
           )}
+          </div>
         </div>
       </div>
 
@@ -377,11 +456,16 @@ export default function HistoryTab({ onReopenProject }) {
           const isRevealing = revealingId === clip.id;
           const isCopied = copiedId === clip.id;
           const isConfirming = confirmDeleteClip === clip.id;
+          const isSelected = selectedIds.has(clip.id);
 
           return (
             <div
               key={clip.id}
-              className="group rounded-2xl bg-white/[0.03] hover:bg-white/[0.06] backdrop-blur-2xl border border-white/[0.08] hover:border-white/[0.2] shadow-sm hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-300 flex flex-col justify-between overflow-hidden"
+              className={`group rounded-2xl bg-white/[0.03] hover:bg-white/[0.06] backdrop-blur-2xl border shadow-sm hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-300 flex flex-col justify-between overflow-hidden ${
+                isSelected
+                  ? 'border-[#e31084] ring-1 ring-[#e31084]/40'
+                  : 'border-white/[0.08] hover:border-white/[0.2]'
+              }`}
             >
               {/* Vertical Video Preview Container */}
               <div className="relative aspect-[9/16] bg-black/90 overflow-hidden">
@@ -393,15 +477,31 @@ export default function HistoryTab({ onReopenProject }) {
                   className="w-full h-full object-contain"
                 />
 
-                {/* Floating Source Tag Badge */}
-                <div className="absolute top-2.5 left-2.5 flex flex-col gap-1.5 pointer-events-none">
+                {/* Tickmark Select Toggle + Source Tag */}
+                <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleSelect(clip.id);
+                    }}
+                    aria-pressed={isSelected}
+                    title={isSelected ? 'Unselect for YouTube push' : 'Tick to push to YouTube'}
+                    className={`w-6 h-6 rounded-lg flex items-center justify-center border backdrop-blur-md transition-all active:scale-90 cursor-pointer shadow-sm ${
+                      isSelected
+                        ? 'bg-[#e31084] border-[#ff66b2] text-white'
+                        : 'bg-black/60 border-white/25 text-white/60 hover:text-white hover:border-white/50'
+                    }`}
+                  >
+                    <Check size={13} strokeWidth={3} className={isSelected ? 'opacity-100' : 'opacity-30'} />
+                  </button>
                   {isStudio ? (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-indigo-500/25 text-indigo-200 border border-indigo-500/40 backdrop-blur-md shadow-xs">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-indigo-500/25 text-indigo-200 border border-indigo-500/40 backdrop-blur-md shadow-xs pointer-events-none">
                       <Film size={10} className="text-indigo-300" /> Studio
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-rose-500/25 text-rose-200 border border-rose-500/40 backdrop-blur-md shadow-xs">
-                      <Flame size={10} className="text-rose-300" /> Live Stream
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-rose-500/25 text-rose-200 border border-rose-500/40 backdrop-blur-md shadow-xs pointer-events-none">
+                      <Flame size={10} className="text-rose-300" /> Live
                     </span>
                   )}
                 </div>
@@ -432,6 +532,17 @@ export default function HistoryTab({ onReopenProject }) {
                     {fmtSize(clip.size_bytes) && <span>{fmtSize(clip.size_bytes)}</span>}
                   </div>
                 </div>
+
+                {/* Direct Push to YouTube Button */}
+                <button
+                  type="button"
+                  onClick={() => openPushForClips([clip])}
+                  className="btn-brand-accent w-full py-1.5 px-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                  title="Edit title, description & emojis and push directly to YouTube"
+                >
+                  <Youtube size={13} />
+                  <span>Push to YouTube</span>
+                </button>
 
                 {/* Reopen Studio Project Link (If applicable) */}
                 {isStudio && projects[clip.job_id] && onReopenProject && (
@@ -520,6 +631,20 @@ export default function HistoryTab({ onReopenProject }) {
           );
         })}
       </div>
+
+      {/* Direct Push to YouTube Modal */}
+      {pushModalClips.length > 0 && (
+        <PushToYouTubeModal
+          clips={pushModalClips}
+          onClose={() => setPushModalClips([])}
+          onConnectYouTube={onConnectYouTube}
+          onSuccess={(pushed) => {
+            setSelectedIds(new Set());
+            setActionSuccess(`Queued ${pushed.length} video(s) for direct YouTube upload!`);
+            setTimeout(() => setActionSuccess(''), 4500);
+          }}
+        />
+      )}
 
       {/* Delete All Confirmation Dialog (Apple Glass Modal) */}
       {showDeleteAllModal && (

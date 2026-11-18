@@ -328,5 +328,82 @@ def cut_spike(
         score=spike.score,
         tags=all_tags,
         hook_mode=session.config.hook_mode,
+        mirror_video=bool(session.config.mirror_video),
+        webcam_mode=str(session.config.webcam_mode or "auto"),
+        webcam_box=dict(session.config.webcam_box) if isinstance(session.config.webcam_box, dict) else None,
+        channel=session.config.channel,
+    )
+    return item, None
+
+
+def cut_manual_window(
+    session: LiveSession,
+    session_dir: Path,
+    buffer_index: Dict[str, Any],
+    start_session: float,
+    end_session: float,
+    clip_id: Optional[str] = None,
+    ffmpeg_path: str = "ffmpeg",
+    ffprobe_path: str = "ffprobe",
+) -> Tuple[Optional[QueueItem], Optional[str]]:
+    """Extract an exact user-requested [start_session, end_session] manual clip from the live buffer."""
+    start_rec = map_to_recording_time(start_session, session.recording_offset_sec)
+    end_rec = map_to_recording_time(end_session, session.recording_offset_sec)
+    if end_rec <= start_rec:
+        return None, "Manual cut window has non-positive duration"
+
+    buffer_dir = session_dir / ("buffer" if session.config.recording_mode == "rolling" else "recording")
+    requested_dur = end_rec - start_rec
+    min_len = min(2.0, max(1.0, requested_dur * 0.5))
+
+    clamped_start, clamped_end, adj_tags, err = check_buffer_and_gaps(
+        start_rec=start_rec,
+        end_rec=end_rec,
+        buffer_index=buffer_index,
+        gaps=session.gaps,
+        min_len=min_len,
+        buffer_dir=buffer_dir,
+    )
+    if err is not None or clamped_start is None or clamped_end is None:
+        return None, err
+
+    covering = find_covering_segments(clamped_start, clamped_end, buffer_index, buffer_dir=buffer_dir)
+    if not covering:
+        return None, "No covering buffer segments found for manual clip range"
+
+    cid = clip_id or str(uuid.uuid4())
+    clips_dir = session_dir / "clips"
+    clips_dir.mkdir(parents=True, exist_ok=True)
+    out_clip_path = clips_dir / f"{cid}.mp4"
+
+    ok = extract_clip(
+        covering_segments=covering,
+        start_rec=clamped_start,
+        end_rec=clamped_end,
+        out_path=out_clip_path,
+        ffmpeg_path=ffmpeg_path,
+        ffprobe_path=ffprobe_path,
+    )
+    if not ok:
+        return None, "FFmpeg extraction or duration verification failed"
+
+    duration = clamped_end - clamped_start
+    all_tags = list(dict.fromkeys(["manual"] + adj_tags))
+    item = QueueItem(
+        id=cid,
+        session_id=session.id,
+        spike_id=f"manual:{cid[:8]}",
+        clip_path=str(out_clip_path.resolve()),
+        status="pending_review",
+        start_t=clamped_start + (session.recording_offset_sec or 0.0),
+        end_t=clamped_end + (session.recording_offset_sec or 0.0),
+        duration=round(duration, 3),
+        score=100.0,
+        tags=all_tags,
+        hook_mode=session.config.hook_mode,
+        mirror_video=bool(session.config.mirror_video),
+        webcam_mode=str(session.config.webcam_mode or "auto"),
+        webcam_box=dict(session.config.webcam_box) if isinstance(session.config.webcam_box, dict) else None,
+        channel=session.config.channel,
     )
     return item, None

@@ -33,7 +33,7 @@ from .youtube_signals import async_fetch_youtube_signals
 from .audio_energy import LiveAudioEnergyAnalyzer, AudioPeak
 from .hardening import cleanup_old_sessions, startup_maintenance
 from .tunnel import global_tunnel, global_kick_api
-from .cutter import cut_spike, calculate_clip_window, map_to_recording_time
+from .cutter import cut_spike, cut_manual_window, calculate_clip_window, map_to_recording_time
 from .queue import global_queue
 
 _CHANNEL_RE = re.compile(r"^[A-Za-z0-9_-]{3,30}$")
@@ -152,6 +152,7 @@ class LiveClipperSession:
         self._kick_subscription_id: Optional[str] = None
         self._recent_messages: collections.deque = collections.deque(maxlen=400)
         self._msg_timestamps: collections.deque = collections.deque()
+        self._manual_cuts: Dict[str, Dict[str, Any]] = {}
 
     @property
     def id(self) -> str:
@@ -199,8 +200,11 @@ class LiveClipperSession:
         min_count: Optional[int] = None,
         cooldown_sec: Optional[float] = None,
         confirm_delay_sec: Optional[float] = None,
+        mirror_video: Optional[bool] = None,
+        webcam_mode: Optional[str] = None,
+        webcam_box: Optional[Dict[str, float]] = None,
     ) -> Dict[str, Any]:
-        """Dynamically update detector sensitivity parameters on the fly."""
+        """Dynamically update detector sensitivity and capture parameters on the fly."""
         if ratio_threshold is not None:
             val = round(max(1.2, min(10.0, float(ratio_threshold))), 2)
             self.detector.config.ratio_threshold = val
@@ -228,6 +232,20 @@ class LiveClipperSession:
             self.detector.confirm_delay_sec = val
             self.config.confirm_delay_sec = val
             self.session_data.config.confirm_delay_sec = val
+        if mirror_video is not None:
+            val = bool(mirror_video)
+            self.config.mirror_video = val
+            self.session_data.config.mirror_video = val
+        if webcam_mode is not None:
+            import camera_inset as _ci
+            norm_mode = _ci.normalize_webcam_mode(webcam_mode)
+            self.config.webcam_mode = norm_mode
+            self.session_data.config.webcam_mode = norm_mode
+        if webcam_box is not None:
+            import camera_inset as _ci
+            parsed_box = _ci.parse_webcam_box(webcam_box)
+            self.config.webcam_box = parsed_box
+            self.session_data.config.webcam_box = parsed_box
 
         self.persist_session_json()
         return {
@@ -235,7 +253,22 @@ class LiveClipperSession:
             "min_count": self.detector.config.min_count,
             "cooldown_sec": self.detector.cooldown_sec,
             "confirm_delay_sec": self.detector.confirm_delay_sec,
+            "mirror_video": bool(self.config.mirror_video),
+            "webcam_mode": str(self.config.webcam_mode or "auto"),
+            "webcam_box": self.config.webcam_box,
         }
+
+    def latest_media_path(self) -> Optional[Path]:
+        """Return the newest completed buffer/recording segment file for snapshot previews."""
+        buffer_dir = self.session_dir / ("buffer" if self.config.recording_mode == "rolling" else "recording")
+        if not buffer_dir.is_dir():
+            return None
+        segs = sorted(
+            (p for p in buffer_dir.iterdir() if p.is_file() and p.suffix.lower() in (".ts", ".mp4", ".mkv") and p.stat().st_size > 16384),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        return segs[0] if segs else None
 
     async def start(self) -> None:
         """Transition session to recording or waiting_for_live."""
@@ -593,6 +626,246 @@ class LiveClipperSession:
         global_queue.add_item(item, self.session_dir)
         self.persist_session_json()
         logger.info(f"Successfully cut clip {item.id} for spike {spike.id} ({item.duration:.1f}s, score {item.score})")
+
+    def get_manual_cuts(self) -> List[Dict[str, Any]]:
+        """Return recent manual cut jobs (newest first) with live remaining wait seconds."""
+        now_s = self.session_clock
+        items = list(self._manual_cuts.values())
+        items.sort(key=lambda c: c.get("requested_at", 0.0), reverse=True)
+        out = []
+        for c in items[:20]:
+            rec = dict(c)
+            if rec["status"] == "waiting":
+                rec["remaining_sec"] = round(max(0.0, rec["end_t"] - now_s), 1)
+            else:
+                rec["remaining_sec"] = 0.0
+            out.append(rec)
+        return out
+
+    def prune_buffer_before(self, cutoff_session_t: float) -> Dict[str, Any]:
+        """Delete completed buffer/recording segments ending at or before cutoff_session_t."""
+        buffer_dir = self.session_dir / ("buffer" if self.config.recording_mode == "rolling" else "recording")
+        index_path = buffer_dir / "index.json"
+        if not index_path.exists():
+            return {"deleted_segments": 0, "freed_mb": 0.0, "remaining_segments": 0, "cutoff_sec": round(cutoff_session_t, 2)}
+
+        try:
+            with open(index_path, "r", encoding="utf-8") as f:
+                idx_data = json.load(f)
+        except Exception as exc:
+            logger.warning(f"Could not read buffer index for pruning: {exc}")
+            return {"deleted_segments": 0, "freed_mb": 0.0, "remaining_segments": 0, "cutoff_sec": round(cutoff_session_t, 2)}
+
+        segments = idx_data.get("segments", [])
+        if not segments:
+            return {"deleted_segments": 0, "freed_mb": 0.0, "remaining_segments": 0, "cutoff_sec": round(cutoff_session_t, 2)}
+
+        cutoff_rec = map_to_recording_time(max(0.0, float(cutoff_session_t)), self.session_data.recording_offset_sec)
+        surviving = []
+        deleted = 0
+        freed_bytes = 0
+
+        for idx, seg in enumerate(segments):
+            seg_start = float(seg.get("start_sec", seg.get("session_start", 0.0)))
+            seg_dur = float(seg.get("duration", 0.0))
+            seg_end = float(seg.get("end_sec", seg_start + seg_dur))
+            is_newest = idx == len(segments) - 1
+
+            # Never delete the newest segment if still actively recording and cutoff hits its tail
+            if seg_end <= cutoff_rec and not (is_newest and self.session_data.state == "recording" and seg_end >= cutoff_rec - 1.0):
+                raw_path = seg.get("path")
+                seg_path = Path(raw_path) if raw_path else (buffer_dir / seg.get("file", ""))
+                if seg_path.is_file():
+                    try:
+                        freed_bytes += seg_path.stat().st_size
+                        seg_path.unlink()
+                    except OSError as exc:
+                        logger.warning(f"Failed to delete buffer segment {seg_path}: {exc}")
+                        surviving.append(seg)
+                        continue
+                deleted += 1
+            else:
+                surviving.append(seg)
+
+        if deleted > 0:
+            idx_data["segments"] = surviving
+            write_json_atomic(str(index_path), idx_data)
+            self.session_data.stats.disk_used_mb = round(self._compute_folder_size_mb(self.session_dir), 1)
+            self.persist_session_json()
+            logger.info(
+                f"Pruned {deleted} old buffer segments before t={cutoff_session_t:.1f}s "
+                f"(freed {freed_bytes / (1024 * 1024):.2f} MB, {len(surviving)} remaining)"
+            )
+
+        return {
+            "deleted_segments": deleted,
+            "freed_mb": round(freed_bytes / (1024 * 1024), 2),
+            "remaining_segments": len(surviving),
+            "cutoff_sec": round(cutoff_session_t, 2),
+        }
+
+    def schedule_manual_cut(
+        self,
+        before_sec: float,
+        after_sec: float,
+        send_to_skipper: bool = True,
+        prune_buffer_before: bool = False,
+    ) -> Dict[str, Any]:
+        """Schedule a manual clip cut anchored at the current live moment."""
+        anchor_t = self.session_clock
+        start_t = max(0.0, anchor_t - max(0.0, float(before_sec)))
+        end_t = anchor_t + max(0.0, float(after_sec))
+        cut_id = str(uuid.uuid4())
+        record: Dict[str, Any] = {
+            "id": cut_id,
+            "anchor_t": round(anchor_t, 2),
+            "start_t": round(start_t, 2),
+            "end_t": round(end_t, 2),
+            "before_sec": round(float(before_sec), 2),
+            "after_sec": round(float(after_sec), 2),
+            "duration": round(end_t - start_t, 2),
+            "remaining_sec": round(max(0.0, float(after_sec)), 1),
+            "status": "waiting" if after_sec > 0 else "cutting",
+            "error": None,
+            "clip_id": None,
+            "skipper": False,
+            "prune_buffer_before": bool(prune_buffer_before),
+            "pruned_segments": 0,
+            "freed_mb": 0.0,
+            "requested_at": time.time(),
+        }
+        self._manual_cuts[cut_id] = record
+        # Keep memory bounded
+        if len(self._manual_cuts) > 40:
+            oldest = sorted(self._manual_cuts.values(), key=lambda c: c.get("requested_at", 0.0))[:10]
+            for old in oldest:
+                if old["status"] in ("done", "failed"):
+                    self._manual_cuts.pop(old["id"], None)
+
+        task = asyncio.create_task(
+            self._run_manual_cut(cut_id, start_t, end_t, send_to_skipper, prune_buffer_before)
+        )
+        self._tasks.append(task)
+        task.add_done_callback(lambda t: self._tasks.remove(t) if t in self._tasks else None)
+        return dict(record)
+
+    async def _run_manual_cut(
+        self,
+        cut_id: str,
+        start_session: float,
+        end_session: float,
+        send_to_skipper: bool = True,
+        prune_buffer_before: bool = False,
+    ) -> None:
+        """Wait for post-anchor footage (if after_sec > 0), then extract and enqueue the manual clip."""
+        rec = self._manual_cuts.get(cut_id)
+        try:
+            # 1. Wait until the session clock passes end_session (or stop is triggered)
+            while not self._stop_event.is_set() and self.session_clock < end_session:
+                wait = min(0.5, max(0.05, end_session - self.session_clock))
+                await asyncio.sleep(wait)
+
+            if rec is not None:
+                rec["status"] = "cutting"
+
+            buffer_dir = self.session_dir / ("buffer" if self.config.recording_mode == "rolling" else "recording")
+            index_path = buffer_dir / "index.json"
+            end_rec = map_to_recording_time(end_session, self.session_data.recording_offset_sec)
+
+            item = None
+            last_err = None
+            max_retries = 14  # Wait up to ~35s for newest segment flush
+
+            for attempt in range(max_retries):
+                if not index_path.exists():
+                    if self._stop_event.is_set():
+                        last_err = "Recording buffer index not available"
+                        break
+                    await asyncio.sleep(2.0)
+                    continue
+
+                try:
+                    with open(index_path, "r", encoding="utf-8") as f:
+                        buffer_index = json.load(f)
+                except Exception:
+                    await asyncio.sleep(1.0)
+                    continue
+
+                raw_segments = buffer_index.get("segments", [])
+                latest_t = 0.0
+                if raw_segments:
+                    latest_t = max(
+                        float(
+                            s.get(
+                                "end_sec",
+                                float(s.get("start_sec", s.get("session_start", 0.0)))
+                                + float(s.get("duration", 0.0)),
+                            )
+                        )
+                        for s in raw_segments
+                    )
+
+                if latest_t < end_rec and not self._stop_event.is_set() and attempt < max_retries - 1:
+                    await asyncio.sleep(2.5)
+                    continue
+
+                item, last_err = await asyncio.to_thread(
+                    cut_manual_window,
+                    session=self.session_data,
+                    session_dir=self.session_dir,
+                    buffer_index=buffer_index,
+                    start_session=start_session,
+                    end_session=end_session,
+                    clip_id=cut_id,
+                )
+                if item is not None:
+                    break
+                if last_err and "min_len" in last_err and not self._stop_event.is_set() and attempt < max_retries - 1:
+                    await asyncio.sleep(2.5)
+                    continue
+                break
+
+            if item is None:
+                if rec is not None:
+                    rec["status"] = "failed"
+                    rec["error"] = last_err or "Could not extract manual clip from buffer"
+                logger.warning(f"Manual cut {cut_id} failed: {last_err}")
+                return
+
+            automated = False
+            if send_to_skipper:
+                from .skipper import capture
+                automated = await asyncio.to_thread(capture, item, self.config.channel, self.config.platform)
+                if automated:
+                    item.status = "skipper"
+                elif self.config.auto_process:
+                    item.status = "approved"
+                    self.session_data.stats.clips_approved += 1
+
+            self.session_data.stats.clips_cut += 1
+            global_queue.add_item(item, self.session_dir)
+            self.persist_session_json()
+            pruned = None
+            if prune_buffer_before:
+                pruned = await asyncio.to_thread(self.prune_buffer_before, start_session)
+            if rec is not None:
+                rec["status"] = "done"
+                rec["clip_id"] = item.id
+                rec["duration"] = round(item.duration, 2)
+                rec["skipper"] = bool(automated)
+                if pruned:
+                    rec["pruned_segments"] = pruned["deleted_segments"]
+                    rec["freed_mb"] = pruned["freed_mb"]
+            logger.info(f"Manual cut {item.id} completed ({item.duration:.1f}s, skipper={automated})")
+        except asyncio.CancelledError:
+            if rec is not None and rec["status"] not in ("done", "failed"):
+                rec["status"] = "failed"
+                rec["error"] = "Cancelled"
+        except Exception as exc:
+            if rec is not None:
+                rec["status"] = "failed"
+                rec["error"] = str(exc)
+            logger.exception(f"Manual cut {cut_id} crashed: {exc}")
 
 
     async def _supervisor_worker(self) -> None:

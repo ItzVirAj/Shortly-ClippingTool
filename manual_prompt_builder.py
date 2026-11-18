@@ -276,7 +276,7 @@ SCHEMA_FIELDS_SPEC = """[
     "source_window_id": string - candidate window identifier or segment id,
     "predicted_score": integer - estimated viral score from 0 to 100,
     "video_title_for_youtube_short": string - specific title (40 to 70 characters) based on concrete events in this clip,
-    "viral_hook_text": string - hook text (at most 10 words, 1 to 2 emojis) from the opening seconds,
+    "viral_hook_text": string - SINGLE LINE punchy hook strictly 3 to 4 words (+ optional 1 emoji) relative to the streamer being recorded,
     "video_description_for_tiktok": string - 1 to 2 sentences (at most 200 characters) plus 3 to 5 relevant hashtags,
     "video_description_for_instagram": string - 1 to 2 sentences (at most 200 characters) plus 3 to 5 relevant hashtags,
     "why": string - brief explanation of why this moment was selected
@@ -330,7 +330,7 @@ SELECTION:
 
 WRITING RULES for every clip:
 - Title: 40 to 70 characters, specific to what happens in THIS clip. Use concrete details from the transcript or context (numbers, names, objects, actions). No generic advice or lesson formulas ("Why 99% of people...", "The truth about...") unless the clip literally says that. No claim the clip does not deliver.
-- Hook text: at most 10 words, 1 to 2 emojis, taken from what is said or happens in the first seconds.
+- Hook text: SINGLE LINE, strictly 3 to 4 words (plus optional 1 emoji), NEVER longer than 4 words and NEVER multi-line. Make it directly relative to the streamer being recorded (use the streamer's name from CONTEXT when available, e.g. "<Streamer> broke GTA 😱", "<Streamer>'s insane clutch 🔥", "When <Streamer> panics 💀").
 - Description: 1 to 2 sentences (at most 200 characters) saying what happens, then 3 to 5 hashtags built from the real topic, context, and transcript.
 - Keep profanity out of the title, hook, and description; use a milder word that keeps the meaning.
 - Write in the same language as the transcript.
@@ -440,15 +440,11 @@ def generate_fallback_metadata_from_transcript(
 
     spoken_clean = soften_profanity(spoken_sentence)
 
-    # 1. Fallback Hook: first 5-8 spoken words + emoji
+    # 1. Fallback Hook: SINGLE LINE strictly 3-4 words (+ emoji), relative to streamer when known
+    from hooks import enforce_single_line_hook
     words = spoken_clean.split()
-    hook_words = words[:min(7, len(words))]
-    hook_text = " ".join(hook_words).strip()
-    if not hook_text:
-        hook_text = "Watch what happens next"
-    hook_text = f"{hook_text} 👀"
-    if len(hook_text.split()) > 10:
-        hook_text = " ".join(hook_text.split()[:9]) + " 👀"
+    hook_seed = " ".join(words[:4]).strip() or "Watch this moment"
+    hook_text = enforce_single_line_hook(f"{hook_seed} 👀", streamer=streamer, max_words=4)
 
     # 2. Fallback Title: 40 to 70 chars, concrete from transcript
     if len(spoken_clean) >= 40:

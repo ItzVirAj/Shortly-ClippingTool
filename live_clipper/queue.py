@@ -131,12 +131,25 @@ class ReviewQueue:
         items.sort(key=lambda it: it.created_at, reverse=True)
         return items
 
-    def approve(self, item_id: str, session_dir: Optional[Path] = None) -> QueueItem:
+    def approve(
+        self,
+        item_id: str,
+        session_dir: Optional[Path] = None,
+        mirror_video: Optional[bool] = None,
+        webcam_mode: Optional[str] = None,
+        webcam_box: Optional[Dict[str, float]] = None,
+    ) -> QueueItem:
         """Approve a pending or failed clip item for rendering."""
         with self._lock:
             item = self._items.get(item_id)
             if not item:
                 raise KeyError(f"Queue item {item_id} not found")
+            if mirror_video is not None:
+                item.mirror_video = bool(mirror_video)
+            if webcam_mode is not None:
+                item.webcam_mode = str(webcam_mode)
+            if webcam_box is not None:
+                item.webcam_box = dict(webcam_box)
             item.transition_to("approved")
             item.error = None
         s_dir = session_dir or (self.data_root / item.session_id)

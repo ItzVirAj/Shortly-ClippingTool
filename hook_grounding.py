@@ -158,13 +158,22 @@ def reground(clip_path, clip, transcript, start, end) -> Optional[dict]:
         if not frames:
             return None
         language = str((transcript or {}).get("language") or "unknown")
+        ctx_streamer = (os.environ.get("CONTEXT_STREAMER") or "").strip()
         prompt = gemini_worker.GROUNDED_HOOK_PROMPT.format(
             language=language,
             current_hook=clip.get("viral_hook_text") or "",
             current_title=clip.get("video_title_for_youtube_short") or "",
             transcript=clip_words(transcript, start, end)[:4000] or "(no speech)")
+        if ctx_streamer:
+            prompt += (
+                f"\nSTREAMER BEING RECORDED: {ctx_streamer}. "
+                f"Make `viral_hook_text` directly relative to {ctx_streamer} on ONE line (3-4 words max)."
+            )
         answer = _ask_gemini(frames, prompt, api_key)
         hook = str(answer.get("viral_hook_text") or "").strip()
+        if hook and ctx_streamer:
+            from hooks import enforce_single_line_hook
+            hook = enforce_single_line_hook(hook, streamer=ctx_streamer, max_words=4)
         title = str(answer.get("video_title_for_youtube_short") or "").strip()
         if not hook:
             return None

@@ -56,10 +56,21 @@ def capture(item, channel, platform):
     layout = settings.get('skipper_layout') or DEFAULT_LAYOUT
     if layout not in VALID_LAYOUTS:
         layout = DEFAULT_LAYOUT
+    mirror_video = bool(getattr(item, 'mirror_video', False)) or bool(settings.get('skipper_mirror', False))
+    item_wc_mode = getattr(item, 'webcam_mode', None) or 'auto'
+    item_wc_box = getattr(item, 'webcam_box', None)
+    if item_wc_mode != 'auto' or item_wc_box:
+        webcam_mode = item_wc_mode
+        webcam_box = item_wc_box
+    else:
+        webcam_mode = settings.get('skipper_webcam_mode') or 'auto'
+        webcam_box = settings.get('skipper_webcam_box')
     override = configured_metadata_override()
     store.add(dict(clip_key=f'live:{item.session_id}:{item.id}', digest=item.id,
                    channel_id=settings['skipper_channel'], channel_name=settings['skipper_name'],
                    captionLook=settings.get('skipper_look'), layout=layout,
+                   mirror_video=mirror_video,
+                   webcam_mode=webcam_mode, webcam_box=webcam_box,
                    source=item.clip_path, live_source=channel, platform=platform,
                    session=item.session_id, start=item.start_t, end=item.end_t, score=item.score,
                    title=override.get('title') or f'Highlight from {channel}',
@@ -81,7 +92,7 @@ def _probe_video_size(video_path):
     return int(w), int(h)
 
 
-def build_vertical_filter(orig_w, orig_h, layout=DEFAULT_LAYOUT, box=None):
+def build_vertical_filter(orig_w, orig_h, layout=DEFAULT_LAYOUT, box=None, mirror=False):
     """Return (filter_flag, filter_expr, map_args) for 1080x1920 vertical rendering.
 
     Layouts:
@@ -89,15 +100,25 @@ def build_vertical_filter(orig_w, orig_h, layout=DEFAULT_LAYOUT, box=None):
       and detected speaker/streamer cam on the bottom half (1080x960).
     - ``blurred_center``: Full uncropped video centered in the middle over a blurred
       9:16 copy of the video behind it.
+
+    When ``mirror=True``, appends ``hflip`` to the video stream before Whisper
+    transcription and subtitle burning so captions and brand frames are never mirrored.
     """
     out_w, out_h = 1080, 1920
     chosen = layout if layout in VALID_LAYOUTS else DEFAULT_LAYOUT
+
+    def _apply_mirror_graph(graph: str) -> str:
+        if not mirror:
+            return graph
+        if graph.endswith('[v]'):
+            return graph[:-3] + ',hflip[v]'
+        return graph + ';[v]hflip[v]'
 
     if chosen == 'blurred_center':
         from reframe_v2 import general_filtergraph, full_width_content_height
         content_h = full_width_content_height(orig_w, orig_h, out_w)
         graph = general_filtergraph(out_w, out_h, content_h=content_h, orig_w=orig_w, orig_h=orig_h)
-        return '-filter_complex', graph, ['-map', '[v]', '-map', '0:a?']
+        return '-filter_complex', _apply_mirror_graph(graph), ['-map', '[v]', '-map', '0:a?']
 
     # Default: streamer_bottom (full screen above half, speaker/streamer cam below)
     if orig_w > orig_h:
@@ -105,10 +126,13 @@ def build_vertical_filter(orig_w, orig_h, layout=DEFAULT_LAYOUT, box=None):
         graph = camera_inset.streamer_split_filtergraph(
             orig_w, orig_h, out_w, out_h, box=box, orientation='streamer_bottom', divider=True
         )
-        return '-filter_complex', graph, ['-map', '[v]', '-map', '0:a?']
+        return '-filter_complex', _apply_mirror_graph(graph), ['-map', '[v]', '-map', '0:a?']
 
     # Source is already portrait: preserve with clean 9:16 fit
-    return '-vf', f'scale={out_w}:{out_h}:force_original_aspect_ratio=increase,crop={out_w}:{out_h},setsar=1', []
+    vf = f'scale={out_w}:{out_h}:force_original_aspect_ratio=increase,crop={out_w}:{out_h},setsar=1'
+    if mirror:
+        vf += ',hflip'
+    return '-vf', vf, []
 
 
 def render(item, root):
@@ -122,15 +146,30 @@ def render(item, root):
 
     orig_w, orig_h = _probe_video_size(item['source'])
     box = None
+    effective_layout = layout
     if layout == 'streamer_bottom' and orig_w > orig_h:
-        try:
-            import camera_inset
-            box = camera_inset.detect_streamer_webcam(item['source'])
-        except Exception as exc:
-            logger.warning("Streamer webcam detection failed (%s); falling back to default corner box.", exc)
-            box = None
+        import camera_inset
+        webcam_mode = camera_inset.normalize_webcam_mode(item.get('webcam_mode') or 'auto')
+        webcam_box = camera_inset.parse_webcam_box(item.get('webcam_box'))
+        if webcam_mode == 'none':
+            effective_layout = 'blurred_center'
+        else:
+            try:
+                box = camera_inset.resolve_webcam_box(
+                    item['source'], orig_w, orig_h,
+                    webcam_mode=webcam_mode, webcam_box=webcam_box,
+                )
+            except Exception as exc:
+                logger.warning("Streamer webcam resolution failed (%s); falling back to blurred center.", exc)
+                box = None
+            if box is None:
+                logger.info("No stationary corner webcam found (mode=%s); rendering blurred_center instead.", webcam_mode)
+                effective_layout = 'blurred_center'
 
-    filter_flag, filter_expr, map_args = build_vertical_filter(orig_w, orig_h, layout=layout, box=box)
+    mirror = bool(item.get('mirror_video', False))
+    filter_flag, filter_expr, map_args = build_vertical_filter(
+        orig_w, orig_h, layout=effective_layout, box=box, mirror=mirror
+    )
     subprocess.run([
         'ffmpeg', '-nostdin', '-loglevel', 'error', '-y', '-i', item['source'],
         filter_flag, filter_expr, *map_args,

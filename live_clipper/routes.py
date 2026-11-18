@@ -1,12 +1,14 @@
 """FastAPI routes for Live Clipper (Section 7.7 of LIVE_CLIPPER_SPEC)."""
+import asyncio
 from dataclasses import asdict
 import json
 import os
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Header, HTTPException, Query, Request, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from .models import LiveConfig, LiveSession
@@ -37,6 +39,9 @@ class CreateSessionRequest(BaseModel):
     wait_for_live: bool = False
     detector: Optional[Dict[str, Any]] = None
     credit_text: Optional[str] = None
+    mirror_video: bool = False
+    webcam_mode: str = "auto"
+    webcam_box: Optional[Dict[str, float]] = None
 
 
 class StopSessionRequest(BaseModel):
@@ -163,6 +168,7 @@ async def get_session_series(
             "audio_peaks": audio_peaks,
             "heatmap": yt_meta.get("heatmap", []),
             "heatmap_peaks": yt_meta.get("heatmap_peaks", []),
+            "manual_cuts": active.get_manual_cuts(),
         }
 
     # If stopped or from disk, compute from detector or persisted spikes
@@ -209,6 +215,9 @@ class UpdateDetectorRequest(BaseModel):
     min_count: Optional[int] = None
     cooldown_sec: Optional[float] = None
     confirm_delay_sec: Optional[float] = None
+    mirror_video: Optional[bool] = None
+    webcam_mode: Optional[str] = None
+    webcam_box: Optional[Dict[str, float]] = None
 
 
 @router.patch("/sessions/{session_id}/detector")
@@ -226,8 +235,134 @@ async def update_session_detector(session_id: str, req: UpdateDetectorRequest) -
         min_count=req.min_count,
         cooldown_sec=req.cooldown_sec,
         confirm_delay_sec=req.confirm_delay_sec,
+        mirror_video=req.mirror_video,
+        webcam_mode=req.webcam_mode,
+        webcam_box=req.webcam_box,
     )
     return {"ok": True, "detector": updated}
+
+
+def _grab_jpeg_frame(media_path: Path) -> bytes:
+    """Extract a single JPEG frame from a media file using ffmpeg."""
+    ffmpeg = os.environ.get("FFMPEG_PATH") or "ffmpeg"
+    res = subprocess.run(
+        [
+            ffmpeg, "-nostdin", "-loglevel", "error",
+            "-i", str(media_path),
+            "-vframes", "1", "-q:v", "4", "-vf", "scale='min(960,iw)':-2",
+            "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1",
+        ],
+        capture_output=True,
+        timeout=10.0,
+    )
+    if res.returncode != 0 or not res.stdout:
+        raise RuntimeError(res.stderr.decode("utf-8", errors="replace")[-200:] or "ffmpeg produced no frame")
+    return res.stdout
+
+
+@router.get("/snapshot")
+async def get_latest_snapshot():
+    """Return a single JPEG frame from the active live stream buffer or latest captured clip."""
+    media: Optional[Path] = None
+    active = session_manager.get_active_session()
+    if active:
+        media = active.latest_media_path()
+    if media is None:
+        for item in global_queue.list_items():
+            if item.clip_path and Path(item.clip_path).is_file():
+                media = Path(item.clip_path)
+                break
+    if media is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No live buffer or clip available for snapshot.")
+    try:
+        jpeg = await asyncio.to_thread(_grab_jpeg_frame, media)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Snapshot extraction failed: {exc}")
+    return Response(content=jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@router.get("/sessions/{session_id}/snapshot")
+async def get_session_snapshot(session_id: str):
+    """Return a single live JPEG frame from a specific active session's buffer."""
+    if not is_valid_uuid(session_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid session ID format.")
+    active = session_manager.get_active_session()
+    media: Optional[Path] = active.latest_media_path() if (active and active.session_id == session_id) else None
+    if media is None:
+        for item in global_queue.list_items(session_id=session_id):
+            if item.clip_path and Path(item.clip_path).is_file():
+                media = Path(item.clip_path)
+                break
+    if media is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No frame available yet for this session.")
+    try:
+        jpeg = await asyncio.to_thread(_grab_jpeg_frame, media)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Snapshot extraction failed: {exc}")
+    return Response(content=jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+class ManualCutRequest(BaseModel):
+    before_sec: float = Field(default=30.0, ge=0.0, le=600.0)
+    after_sec: float = Field(default=10.0, ge=0.0, le=600.0)
+    send_to_skipper: bool = True
+    prune_buffer_before: bool = False
+
+
+class PruneBufferRequest(BaseModel):
+    keep_last_sec: float = Field(default=0.0, ge=0.0, le=3600.0)
+
+
+@router.post("/sessions/{session_id}/manual-cut")
+async def manual_cut_session_clip(session_id: str, req: ManualCutRequest) -> Dict[str, Any]:
+    """Manually cut a highlight clip around the current live moment (X before, Y after)."""
+    if not is_valid_uuid(session_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid session ID format.")
+
+    total = req.before_sec + req.after_sec
+    if total < 2.0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Total clip length (before + after) must be at least 2 seconds.",
+        )
+    if total > 600.0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Total clip length cannot exceed 10 minutes (600 seconds).",
+        )
+
+    active = session_manager.get_active_session()
+    if not active or active.session_id != session_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Active session not found or already stopped.")
+
+    if active.session_data.state not in ("recording", "connecting"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot cut a clip while session is '{active.session_data.state}'. Wait until recording begins.",
+        )
+
+    record = active.schedule_manual_cut(
+        before_sec=req.before_sec,
+        after_sec=req.after_sec,
+        send_to_skipper=req.send_to_skipper,
+        prune_buffer_before=req.prune_buffer_before,
+    )
+    return {"ok": True, "cut": record}
+
+
+@router.post("/sessions/{session_id}/buffer/prune")
+async def prune_session_buffer(session_id: str, req: PruneBufferRequest = PruneBufferRequest()) -> Dict[str, Any]:
+    """Delete completed buffer segments older than (now - keep_last_sec) on an active session."""
+    if not is_valid_uuid(session_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid session ID format.")
+
+    active = session_manager.get_active_session()
+    if not active or active.session_id != session_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Active session not found or already stopped.")
+
+    cutoff_t = max(0.0, active.session_clock - req.keep_last_sec)
+    result = await asyncio.to_thread(active.prune_buffer_before, cutoff_t)
+    return {"ok": True, **result}
 
 
 @router.delete("/sessions/{session_id}")
@@ -301,13 +436,27 @@ async def list_all_queue() -> Dict[str, Any]:
     return {"items": [it.to_dict() for it in items]}
 
 
+class ApproveClipRequest(BaseModel):
+    mirror_video: Optional[bool] = None
+    webcam_mode: Optional[str] = None
+    webcam_box: Optional[Dict[str, float]] = None
+
+
 @router.post("/queue/{item_id}/approve")
-async def approve_clip(item_id: str) -> Dict[str, Any]:
+async def approve_clip(item_id: str, req: Optional[ApproveClipRequest] = None) -> Dict[str, Any]:
     """Approve a clip in the queue for rendering through the Shortly pipeline."""
     if not is_valid_uuid(item_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid item ID format")
     try:
-        item = global_queue.approve(item_id)
+        mirror_override = req.mirror_video if req is not None else None
+        wc_mode_override = req.webcam_mode if req is not None else None
+        wc_box_override = req.webcam_box if req is not None else None
+        item = global_queue.approve(
+            item_id,
+            mirror_video=mirror_override,
+            webcam_mode=wc_mode_override,
+            webcam_box=wc_box_override,
+        )
         return {"ok": True, "item": item.to_dict()}
     except KeyError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Queue item {item_id} not found")

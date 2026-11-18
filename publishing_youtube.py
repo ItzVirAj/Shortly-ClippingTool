@@ -44,11 +44,16 @@ class YouTube:
                     if datetime.fromisoformat(item['publish_at']).timestamp() <= datetime.now(timezone.utc).timestamp():
                         raise UploadProblem('The publication time has passed. Cancel this item and prepare a new schedule.')
                     status.update(privacyStatus='private', publishAt=item['publish_at'])
-                from live_clipper.skipper import configured_metadata_override
-                override = configured_metadata_override()
-                snippet_title = override.get('title') or item['title']
-                snippet_description = override.get('description') if 'description' in override else item['description']
-                snippet_tags = override.get('tags') if 'tags' in override else item.get('tags', [])
+                if item.get('custom_metadata'):
+                    snippet_title = item['title']
+                    snippet_description = item.get('description', '')
+                    snippet_tags = item.get('tags', [])
+                else:
+                    from live_clipper.skipper import configured_metadata_override
+                    override = configured_metadata_override()
+                    snippet_title = override.get('title') or item['title']
+                    snippet_description = override.get('description') if 'description' in override else item['description']
+                    snippet_tags = override.get('tags') if 'tags' in override else item.get('tags', [])
                 response = await client.post('https://www.googleapis.com/upload/youtube/v3/videos',
                     params={'uploadType': 'resumable', 'part': 'snippet,status'},
                     headers={**auth, 'X-Upload-Content-Type': 'video/mp4', 'X-Upload-Content-Length': str(size)},
