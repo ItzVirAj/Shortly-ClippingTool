@@ -197,6 +197,7 @@ class LiveSession:
 
 
 QUEUE_STATUSES = {
+    "skipper",
     "pending_review",
     "approved",
     "rejected",

@@ -94,3 +94,52 @@ def test_youtube_reconciles_completed_session_without_reupload(tmp_path, monkeyp
     assert result == 'existing-video'
     assert updates[-1]['status'] == 'processing'
     assert len(calls) == 1
+
+
+def test_skipper_render_error_skips_to_next_clip(tmp_path):
+    store = Store(tmp_path)
+    store.configure({'skipper': True})
+    def add(key):
+        return store.add({'clip_key': key, 'channel_id': 'ch', 'digest': key}, initial_status='editing')
+    add('live:session:one')
+    add('live:session:two')
+    item, lease = store.claim()
+    store.progress(item['id'], lease, {'status': 'attention', 'error': 'Caption burn failed'}, done=True)
+    store.configure({'skipper': False})  # already accepted captures still finish
+    next_item, _ = Store(tmp_path).claim()
+    assert next_item['id'] != item['id']
+    assert store.get(item['id'])['error'] == 'Caption burn failed'
+
+
+def test_n8n_tick_handles_render_failure_and_continues(tmp_path, monkeypatch):
+    import asyncio
+    import httpx
+    from fastapi import FastAPI
+    from live_clipper import skipper
+    from publishing_routes import install
+
+    monkeypatch.setenv('SHORTLY_PUBLISHING_TOKEN', 'local-test')
+    app = FastAPI()
+    store = install(app, tmp_path, lambda: [])
+    def render(item, root):
+        if item['digest'] == 'first':
+            raise ValueError('Missing speech')
+        return {'status': 'metadata', 'snapshot': 'rendered.mp4'}
+    monkeypatch.setattr(skipper, 'render', render)
+    items = [store.add({'clip_key': f'live:{key}', 'digest': key, 'channel_id': 'ch'},
+                       initial_status='editing') for key in ('first', 'second')]
+
+    async def tick_twice():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test',
+                                     headers={'Authorization': 'Bearer local-test'}) as client:
+            for item in items:
+                response = await client.post('/api/publishing/tick')
+                assert response.json()['item_id'] == item['id']
+                for _ in range(100):
+                    if store.get(item['id'])['status'] != 'editing':
+                        break
+                    await asyncio.sleep(.01)
+    asyncio.run(tick_twice())
+    assert store.get(items[0]['id'])['failed_stage'] == 'editing'
+    assert store.get(items[0]['id'])['status'] == 'attention'
+    assert store.get(items[1]['id'])['status'] == 'metadata'

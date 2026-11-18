@@ -65,12 +65,26 @@ class Store:
                 db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', (k, json.dumps(v)))
         return self.settings()
 
-    def add(self, data):
+    def add(self, data, initial_status='draft'):
         item_id = uuid.uuid4().hex
         payload = {**data, 'error': None, 'bytes_sent': 0, 'session_url': None, 'video_id': None}
         with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if initial_status == 'editing' and data.get('session'):
+                for sibling in db.execute("SELECT * FROM items WHERE clip_key LIKE 'live:%' AND status NOT IN ('cancelled','attention')"):
+                    other = self.decode(sibling)
+                    if other.get('session') != data['session'] or other['clip_key'] == data['clip_key']:
+                        continue
+                    overlap = min(other['end'], data['end']) - max(other['start'], data['start'])
+                    if overlap < 0.6 * min(other['duration'], data['duration']):
+                        continue
+                    if other['status'] == 'editing' and not sibling['lease'] and data['score'] > other['score']:
+                        db.execute("UPDATE items SET status='cancelled',revision=revision+1 WHERE id=?", (other['id'],))
+                    else:
+                        initial_status = 'cancelled'
+                        break
             db.execute('INSERT OR IGNORE INTO items(id,clip_key,channel_id,digest,status,revision,payload,created) VALUES(?,?,?,?,?,?,?,?)',
-                       (item_id, data['clip_key'], data['channel_id'], data['digest'], 'draft', 1, json.dumps(payload), time.time()))
+                       (item_id, data['clip_key'], data['channel_id'], data['digest'], initial_status, 1, json.dumps(payload), time.time()))
             row = db.execute('SELECT * FROM items WHERE clip_key=? AND channel_id=? AND digest=?',
                              (data['clip_key'], data['channel_id'], data['digest'])).fetchone()
             return self.decode(row)
@@ -95,10 +109,19 @@ class Store:
                 return None
             paused_row = db.execute("SELECT value FROM settings WHERE key='paused'").fetchone()
             paused = json.loads(paused_row[0]) if paused_row else True
-            states = ('processing', 'scheduled') if paused else ('processing', 'scheduled', 'queued', 'uploading')
-            row = db.execute(f"SELECT * FROM items WHERE status IN ({','.join('?' for _ in states)}) AND next_check<=? ORDER BY next_check,created LIMIT 1", (*states, now)).fetchone()
+            states = ('processing', 'scheduled') if paused else ('processing', 'scheduled', 'queued', 'uploading', 'editing', 'metadata')
+            # Auto authorizes live jobs independently of the manual publishing queue.
+            live_clause = " OR (clip_key LIKE 'live:%' AND status IN ('editing','metadata','queued','uploading'))"
+            row = db.execute(f"SELECT * FROM items WHERE (status IN ({','.join('?' for _ in states)}){live_clause}) AND next_check<=? ORDER BY next_check,created LIMIT 1", (*states, now)).fetchone()
             if not row:
                 return None
+            if row['status'] == 'queued' and row['clip_key'].startswith('live:'):
+                db.execute('CREATE TABLE IF NOT EXISTS live_slots (item_id TEXT PRIMARY KEY, started REAL)')
+                recent = db.execute('SELECT started FROM live_slots WHERE started>? ORDER BY started', (now - 3600,)).fetchall()
+                if len(recent) >= 3:
+                    db.execute('UPDATE items SET next_check=? WHERE id=?', (recent[0][0] + 3600, row['id']))
+                    return None
+                db.execute('INSERT OR IGNORE INTO live_slots VALUES (?,?)', (row['id'], now))
             token = uuid.uuid4().hex
             status = 'uploading' if row['status'] in ('queued', 'uploading') else row['status']
             db.execute('UPDATE items SET status=?,lease=?,lease_until=?,revision=revision+1 WHERE id=?',

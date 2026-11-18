@@ -1,3 +1,4 @@
+import Skipper from './Skipper';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   Radio, 
@@ -299,6 +300,7 @@ export default function LiveClipperTab({ onOpenInEditor }) {
 
   return (
     <div className="space-y-5 max-w-6xl mx-auto pb-12">
+      <Skipper />
       {/* Connection Failure Toast Notice */}
       {connectionLost && (
         <div className="p-3.5 rounded-2xl bg-warn/15 backdrop-blur-xl border border-warn/30 text-warn text-xs font-mono flex items-center justify-between gap-3 shadow-lg animate-pulse">

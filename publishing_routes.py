@@ -30,7 +30,7 @@ def install(app, output_dir, list_clips):
             raise HTTPException(403, 'Local access or publishing bearer token required')
 
     def public(item):
-        return {k: v for k, v in item.items() if k not in ('session_url', 'snapshot')}
+        return {**{k: v for k, v in item.items() if k not in ('session_url', 'snapshot', 'source', 'transcript')}, 'preview_ready': bool(item.get('snapshot'))}
 
     async def worker(item, lease):
         async def heartbeat():
@@ -42,12 +42,22 @@ def install(app, output_dir, list_clips):
         def persist(patch):
             return store.progress(item['id'], lease, patch)
         try:
+            if item['status'] == 'editing':
+                from live_clipper import skipper
+                patch = await asyncio.to_thread(skipper.render, item, store.root)
+                store.progress(item['id'], lease, patch, done=True)
+                return
+            if item['status'] == 'metadata':
+                from live_clipper import skipper
+                patch = await asyncio.to_thread(skipper.metadata, item)
+                store.progress(item['id'], lease, {**patch, 'status': 'queued'}, done=True)
+                return
             channel = await youtube.channel()
             if channel['id'] != item['channel_id']:
                 raise UploadProblem('Connected channel differs from the approved destination.')
             if not item.get('video_id'):
                 digest = await asyncio.to_thread(lambda: hashlib.sha256(Path(item['snapshot']).read_bytes()).hexdigest())
-                if digest != item['digest']:
+                if digest != item.get('rendered_digest', item['digest']):
                     raise UploadProblem('Approved video changed. Prepare a new draft.')
                 video_id = await youtube.upload(item, persist)
             else:
@@ -55,7 +65,7 @@ def install(app, output_dir, list_clips):
             result = await youtube.status(video_id)
             store.progress(item['id'], lease, result, done=True)
         except Exception as exc:
-            store.progress(item['id'], lease, {'status': 'attention', 'error': str(exc) if isinstance(exc, (UploadProblem, FileNotFoundError)) else 'Upload interrupted. Retry to resume the existing session.', 'uncertain': bool(getattr(exc, 'uncertain', False))}, done=True)
+            store.progress(item['id'], lease, {'status': 'attention', 'failed_stage': item['status'], 'error': str(exc) if isinstance(exc, (UploadProblem, FileNotFoundError)) else f'{item["status"].capitalize()} failed ({type(exc).__name__}). Clip skipped.', 'uncertain': bool(getattr(exc, 'uncertain', False))}, done=True)
         finally:
             pulse.cancel()
 
@@ -128,10 +138,31 @@ def install(app, output_dir, list_clips):
         elif action == 'retry':
             if item.get('uncertain'):
                 raise HTTPException(409, 'Check YouTube Studio. Automatic retry could duplicate this video.')
-            patch, allowed = {'status': 'processing' if item.get('video_id') else 'queued', 'error': None}, ('attention',)
+            patch, allowed = {'status': 'processing' if item.get('video_id') else item.get('failed_stage', 'queued'), 'error': None}, ('attention',)
         else:
             raise HTTPException(404, 'Unknown action')
         return public(store.edit(item_id, body.revision, allowed, patch))
+
+    @router.get('/skipper')
+    async def skipper_status(request: Request):
+        await guard(request)
+        settings = store.settings()
+        return {'settings': settings, 'items': [
+            {k: i.get(k) for k in ('id','clip_key','title','status','error','video_id')}
+            for i in store.list() if i['clip_key'].startswith('live:')]}
+
+    @router.put('/skipper')
+    async def skipper_mode(request: Request):
+        await guard(request)
+        body = await request.json()
+        enabled = body.get('enabled')
+        if not isinstance(enabled, bool):
+            raise HTTPException(400, 'Select Auto or Manual')
+        patch = {'skipper': enabled}
+        if enabled:
+            channel = await youtube.channel()
+            patch.update(skipper_channel=channel['id'], skipper_name=channel['title'])
+        return store.configure(patch)
 
     @router.put('/settings')
     async def settings(request: Request):
@@ -156,7 +187,10 @@ def install(app, output_dir, list_clips):
     @router.get('/items/{item_id}/preview')
     async def preview(item_id: str, request: Request):
         await guard(request)
-        return FileResponse(store.get(item_id)['snapshot'], media_type='video/mp4')
+        snapshot = store.get(item_id).get('snapshot')
+        if not snapshot or not Path(snapshot).is_file():
+            raise HTTPException(404, 'Rendered video unavailable')
+        return FileResponse(snapshot, media_type='video/mp4')
 
     @app.exception_handler(Conflict)
     async def conflict_handler(request, exc):

@@ -47,7 +47,7 @@ class YouTube:
                 response = await client.post('https://www.googleapis.com/upload/youtube/v3/videos',
                     params={'uploadType': 'resumable', 'part': 'snippet,status'},
                     headers={**auth, 'X-Upload-Content-Type': 'video/mp4', 'X-Upload-Content-Length': str(size)},
-                    json={'snippet': {'title': item['title'], 'description': item['description'], 'categoryId': '22'}, 'status': status})
+                    json={'snippet': {'title': item['title'], 'description': item['description'], 'categoryId': '22', 'tags': item.get('tags', [])}, 'status': status})
                 check_response(response)
                 session = response.headers.get('Location')
                 host = urlparse(session or '').hostname or ''

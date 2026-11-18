@@ -579,7 +579,11 @@ class LiveClipperSession:
             return
 
         # 4. Handle auto_process
-        if self.config.auto_process:
+        from .skipper import capture
+        automated = await asyncio.to_thread(capture, item, self.config.channel, self.config.platform)
+        if automated:
+            item.status = 'skipper'  # capture handed off to persistent Skipper queue
+        elif self.config.auto_process:
             item.status = "approved"
             self.session_data.stats.clips_approved += 1
 
