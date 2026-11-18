@@ -6460,6 +6460,11 @@ async def get_clip_edl(job_id: str, clip_index: int, request: Request):
         base_name = os.path.basename(json_files[0]).replace('_metadata.json', '')
         current_file = _canonical_clip_file(output_dir, base_name, clip_index)
 
+    preview = clip.get('editor_preview_url') or f'/videos/{job_id}/{current_file}'
+    candidate = _strip_burned_captions(output_dir, os.path.basename(preview), materialize=False)
+    clean_url = None
+    if os.path.isfile(os.path.join(output_dir, candidate)):
+        clean_url = f"/videos/{job_id}/{await _deliver(request, job_id, candidate)}"
     total = recut.total_duration(segments)
     return {
         "job_id": job_id,
@@ -6471,6 +6476,10 @@ async def get_clip_edl(job_id: str, clip_index: int, request: Request):
         "duration": total,
         "current_file": current_file,
         "editor_preview_url": clip.get("editor_preview_url"),
+        "caption_preview_url": clean_url,
+        "captionLook": clip.get("captionLook"),
+        "look_pending": clip.get("look_pending", False),
+        "stickers": clip.get("stickers", []),
         "kick_framed": bool(clip.get("kick_framed") or "kick_" in (clip.get("video_url") or "")),
         "frame_type": clip.get('frame_type') or ('kick' if clip.get('kick_framed') else None),
         "frame_scale": clip.get('frame_scale', 1.0),
@@ -6513,7 +6522,13 @@ class ClipTextOverlay(BaseModel):
     bg_opacity: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
 
 
+from caption_looks import Look, Sticker, composite as composite_looks
+
+
 class RerenderRequest(BaseModel):
+    captionLook: Optional[Look] = None
+    stickers: Optional[List[Sticker]] = Field(default=None, max_length=24)
+    applyLookToAll: bool = False
     job_id: str
     clip_index: int
     segments: List[RerenderSegment]
@@ -6642,6 +6657,10 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
 
     total = recut.total_duration(segments)
     rerender_minutes = _cloud_config.EDITOR_ACTION_MINUTES if BILLING_ENABLED else 0
+    look = req.captionLook or (Look.model_validate(clip['captionLook']) if clip.get('captionLook') else None)
+    stickers = req.stickers if req.stickers is not None else [Sticker.model_validate(s) for s in clip.get('stickers', [])]
+    if req.applyLookToAll and look is None:
+        raise HTTPException(422, 'Choose a caption look first')
     reservation_id = await reserve_managed_action(
         request, rerender_minutes, req.job_id, "rerender")
 
@@ -6655,14 +6674,14 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
                 segments=recut.rebase_segments(
                     segments, canonical_range['start'], canonical_range['end']),
                 output_dir=output_dir, clean_name=clean_name,
-                reframe=False, captions_transcript=v_transcript,
+                reframe=False, captions_transcript=None if look else v_transcript,
                 captioner=_recut_captioner(clip))
         return recut.perform_recut(
             input_path=source_path, segments=segments,
             output_dir=output_dir, clean_name=clean_name,
             reframe=True, output_format=data.get('output_format', 'auto'),
             force_strategy=force_strategy,
-            captions_transcript=v_transcript,
+            captions_transcript=None if look else v_transcript,
             captioner=_recut_captioner(clip),
             # Trim the source's own subtitles only when ours go back on.
             subtitle_band=(data.get('source_subtitle_band')
@@ -6671,7 +6690,14 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
     try:
         loop = asyncio.get_event_loop()
         served_name, _clean_recut_name = await loop.run_in_executor(None, run_recut)
-        preview_name = served_name
+        preview_name = _clean_recut_name if look else served_name
+        if look or stickers:
+            decorated = f"subtitled_{int(time.time())}_{served_name}"
+            rendered = await asyncio.to_thread(composite_looks,
+                os.path.join(output_dir, served_name), os.path.join(output_dir, decorated),
+                recut.transcript_words(v_transcript), look, stickers)
+            if rendered:
+                served_name = decorated
 
         active_frame = req.frame_type if req.frame_type is not None else clip.get('frame_type')
         if not active_frame and (req.kick_frame or clip.get('kick_framed')):
@@ -6738,10 +6764,21 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
         # captions from the transcript (in the recorded style, if any).
         if clip.get('caption_words'):
             updates['caption_words'] = None
+        if look:
+            updates.update(captionLook=look.model_dump(), look_pending=False)
+        updates['stickers'] = [s.model_dump() for s in stickers]
+        if req.applyLookToAll:
+            for index, sibling in enumerate(clips):
+                if index != req.clip_index:
+                    sibling.update(captionLook=look.model_dump(), look_pending=True)
         clip.update(updates)
         data['shorts'] = clips
         write_json_atomic(json_files[0], data, indent=2)
         mem_clips = (job.get('result') or {}).get('clips') or []
+        if req.applyLookToAll:
+            for index, sibling in enumerate(mem_clips):
+                if index != req.clip_index:
+                    sibling.update(captionLook=look.model_dump(), look_pending=True)
         if req.clip_index < len(mem_clips):
             mem_clips[req.clip_index].update(updates)
 

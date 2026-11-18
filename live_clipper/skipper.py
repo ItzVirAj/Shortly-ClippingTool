@@ -20,7 +20,7 @@ def capture(item, channel, platform):
         return False
     store.add(dict(clip_key=f'live:{item.session_id}:{item.id}', digest=item.id,
                    channel_id=settings['skipper_channel'], channel_name=settings['skipper_name'],
-                   source=item.clip_path, live_source=channel, platform=platform,
+                   captionLook=settings.get('skipper_look'), source=item.clip_path, live_source=channel, platform=platform,
                    session=item.session_id, start=item.start_t, end=item.end_t, score=item.score,
                    title=f'Highlight from {channel}', description='', privacy='public',
                    made_for_kids=False, publish_at=None, duration=item.duration,
@@ -38,9 +38,18 @@ def render(item, root):
                     '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1',
                     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', str(vertical)], check=True)
     transcript = transcribe_video(str(vertical))
-    captioned = auto_caption_clip(str(vertical), transcript, 0, item['duration'])
-    if not captioned:
-        raise ValueError('Default caption render failed or no speech was detected.')
+    from caption_looks import Look, composite
+    from recut import transcript_words
+    words = transcript_words(transcript)
+    captioned = str(vertical)
+    if item.get('captionLook'):
+        target = folder / 'captioned.mp4'
+        if composite(vertical, target, words, Look.model_validate(item['captionLook']), []):
+            captioned = str(target)
+    elif words:
+        captioned = auto_caption_clip(str(vertical), transcript, 0, item['duration'])
+        if not captioned:
+            raise ValueError('Default caption render failed.')
     final = folder / 'final.mp4'
     if not apply_brand_frame(captioned, str(final), item['platform']):
         raise ValueError('Brand frame render failed.')

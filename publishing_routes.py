@@ -147,7 +147,8 @@ def install(app, output_dir, list_clips):
     async def skipper_status(request: Request):
         await guard(request)
         settings = store.settings()
-        return {'settings': settings, 'items': [
+        import yt_oauth
+        return {'channel': (yt_oauth.load_tokens() or {}).get('channel'), 'settings': settings, 'items': [
             {k: i.get(k) for k in ('id','clip_key','title','status','error','video_id')}
             for i in store.list() if i['clip_key'].startswith('live:')]}
 
@@ -161,6 +162,12 @@ def install(app, output_dir, list_clips):
         patch = {'skipper': enabled}
         if enabled:
             channel = await youtube.channel()
+            from caption_looks import Look
+            from pydantic import ValidationError
+            try:
+                patch['skipper_look'] = Look.model_validate(body.get('look', store.settings().get('skipper_look', {}))).model_dump()
+            except ValidationError as exc:
+                raise HTTPException(422, 'Invalid caption settings') from exc
             patch.update(skipper_channel=channel['id'], skipper_name=channel['title'])
         return store.configure(patch)
 
