@@ -253,6 +253,18 @@ def extract_clip(
                 pass
 
 
+def speech_bounds(transcript, duration, peak, minimum):
+    """Trim quiet edges while retaining the reaction, lead-in and minimum clip length."""
+    words = [word for segment in transcript.get("segments", []) for word in segment.get("words", [])
+             if word.get("word", "").strip() and 0 <= word["start"] < word["end"] <= duration + 0.5]
+    if len(words) < 3:
+        return 0.0, duration
+    start = max(0.0, min(words[0]["start"] - 0.5, peak - 4))
+    end = min(duration, max(words[-1]["end"] + 0.75, peak + 3))
+    start = max(0.0, min(start, end - minimum))
+    return start, min(duration, max(end, start + minimum))
+
+
 def cut_spike(
     spike: Spike,
     session: LiveSession,
@@ -313,6 +325,27 @@ def cut_spike(
     )
     if not ok:
         return None, "FFmpeg extraction or duration verification failed"
+
+    # Run ASR only on a buffered candidate. Preserve the first cut for sparse
+    # speech, missing models, or an unsuccessful second extraction.
+    trimmed = out_clip_path.with_suffix(".trim.mp4")
+    try:
+        from transcribe_backends import transcribe_media
+        transcript = transcribe_media(str(out_clip_path))
+        duration = clamped_end - clamped_start
+        relative_peak = map_to_recording_time(spike.peak, session.recording_offset_sec) - clamped_start
+        left, right = speech_bounds(transcript, duration, relative_peak, session.config.detector.min_len)
+        if (left >= 1 or duration - right >= 1) and extract_clip(
+            [{"start_sec": 0, "path": out_clip_path}], left, right, trimmed, ffmpeg_path, ffprobe_path
+        ):
+            trimmed.replace(out_clip_path)
+            clamped_end = clamped_start + right
+            clamped_start += left
+            all_tags.append("speech_trimmed")
+    except Exception as exc:
+        logger.info("Keeping signal-based window for %s: %s", clip_id, exc)
+    finally:
+        trimmed.unlink(missing_ok=True)
 
     # 6. Create QueueItem
     duration = clamped_end - clamped_start

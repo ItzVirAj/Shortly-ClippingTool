@@ -276,6 +276,11 @@ class StreamlinkRecorder(Recorder):
                     except Exception:
                         pass
 
+                # Give consumers time to read the final indexed segments before releasing the slot.
+                if sl_dead and ff_dead and now_mono - last_seg_time > 45:
+                    self._state = "ended"
+                    return
+
                 # 4. Check for 30s silence / gap
                 if (now_mono - last_seg_time) > 30.0 and self._state == "recording":
                     self._state = "reconnecting"

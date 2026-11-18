@@ -133,6 +133,7 @@ class LiveClipperSession:
         self._session_json_path = self.session_dir / "session.json"
         self._spikes_json_path = self.session_dir / "spikes.json"
         self._spikes: List[Spike] = []
+        self._candidate_times = {}
 
         # Audio energy analysis & YouTube signals
         self.audio_analyzer: Optional[LiveAudioEnergyAnalyzer] = None
@@ -545,15 +546,27 @@ class LiveClipperSession:
 
     async def _process_spike_to_queue(self, spike: Spike) -> None:
         """Cut raw clip for a confirmed spike and enqueue it, waiting if needed for video buffer chunks."""
+        signal = "Audio peak" if "audio_peak" in spike.tags else "Chat spike"
+        stats = self.session_data.stats
+        self._candidate_times = {k: t for k, t in self._candidate_times.items() if t > self.session_clock - 3600}
+        if any(abs(spike.peak - t) < self.config.cooldown_sec for t in self._candidate_times.values()):
+            stats.last_decision = f"{signal} skipped · overlaps a recent highlight"
+            return
+        if len(self._candidate_times) >= self.config.max_clips_per_hour:
+            stats.last_decision = f"{signal} skipped · hourly limit reached"
+            return
         # 1. Check max_pending
         pending_items = [
             it for it in global_queue.list_items(session_id=self.id)
             if it.status == "pending_review"
         ]
         if len(pending_items) >= self.config.max_pending:
+            stats.last_decision = f"{signal} skipped · review queue full"
             logger.info(f"Skipping spike {spike.id}: queue has {len(pending_items)} pending items (max {self.config.max_pending})")
             return
 
+        self._candidate_times[spike.id] = spike.peak
+        stats.last_decision = f"{signal} at {spike.peak:.0f}s · preparing clip"
         buffer_dir = self.session_dir / ("buffer" if self.config.recording_mode == "rolling" else "recording")
         index_path = buffer_dir / "index.json"
 
@@ -610,6 +623,8 @@ class LiveClipperSession:
                 break
 
         if item is None:
+            self._candidate_times.pop(spike.id, None)
+            stats.last_decision = f"{signal} skipped · {last_err or 'recording buffer unavailable'}"
             logger.warning(f"Could not cut clip for spike {spike.id}: {last_err}")
             return
 
@@ -622,6 +637,8 @@ class LiveClipperSession:
             item.status = "approved"
             self.session_data.stats.clips_approved += 1
 
+        framing = "speech-trimmed" if "speech_trimmed" in item.tags else "signal window"
+        stats.last_decision = f"{signal} captured · {item.duration:.0f}s · {framing}"
         self.session_data.stats.clips_cut += 1
         global_queue.add_item(item, self.session_dir)
         self.persist_session_json()
@@ -893,6 +910,9 @@ class LiveClipperSession:
                 # 3. Video gap check from recorder state
                 r_state = self.recorder.state
                 self.session_data.recorder_state = r_state
+                if r_state == "ended":
+                    asyncio.create_task(self.stop())
+                    break
                 if r_state == "reconnecting":
                     if self._active_video_gap_start is None:
                         self._active_video_gap_start = now_s
@@ -1002,6 +1022,7 @@ class SessionManager:
     """Manages session creation, listing, recovery, and lifetime."""
 
     def __init__(self, data_dir: Optional[str] = None) -> None:
+        self._start_lock = asyncio.Lock()
         self.data_dir = data_dir or _default_live_sessions_dir()
         self._active_session: Optional[LiveClipperSession] = None
         Path(self.data_dir).mkdir(parents=True, exist_ok=True)
@@ -1019,6 +1040,17 @@ class SessionManager:
         config: LiveConfig,
         chat_source: Optional[ChatSource] = None,
         recorder: Optional[Recorder] = None,
+        require_recorder: bool = False,
+    ) -> LiveClipperSession:
+        async with self._start_lock:
+            return await self._start_session(config, chat_source, recorder, require_recorder)
+
+    async def _start_session(
+        self,
+        config: LiveConfig,
+        chat_source: Optional[ChatSource],
+        recorder: Optional[Recorder],
+        require_recorder: bool,
     ) -> LiveClipperSession:
         """Create and start a new live clipper session (enforces single active session)."""
         active = self.get_active_session()
@@ -1045,6 +1077,8 @@ class SessionManager:
             if avail.get("available"):
                 recorder = sl_rec
             else:
+                if require_recorder:
+                    raise RuntimeError("Streamlink and FFmpeg are required for recording.")
                 recorder = FakeRecorder()
 
         session = LiveClipperSession(
@@ -1055,7 +1089,11 @@ class SessionManager:
             recorder=recorder,
         )
         self._active_session = session
-        await session.start()
+        try:
+            await session.start()
+        except BaseException:
+            await session.stop()
+            raise
         return session
 
     def run_maintenance(self, retention_days: int = 7) -> Dict[str, Any]:

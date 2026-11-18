@@ -153,7 +153,7 @@ class LiveAudioEnergyAnalyzer:
         new_peaks: List[AudioPeak] = []
 
         for seg in segments:
-            filename = seg.get("filename", "")
+            filename = seg.get("file") or seg.get("filename", "")
             if not filename or filename in self.processed_segments:
                 continue
 
@@ -161,14 +161,14 @@ class LiveAudioEnergyAnalyzer:
             if not seg_path.exists():
                 continue
 
-            start_t = float(seg.get("start_sec", 0.0))
+            start_t = float(seg.get("session_start", seg.get("start_sec", 0.0)))
             audio = decode_audio_segment(seg_path, ffmpeg_bin=self.ffmpeg_bin)
-            self.processed_segments.add(filename)
 
             if audio is None or len(audio) < 16000:
                 continue
 
-            # Detect peaks in this segment
+            self.processed_segments.add(filename)
+            # Compare sustained changes across segment boundaries as well as local peaks.
             seg_peaks = detect_audio_peaks_from_samples(
                 audio=audio,
                 threshold_db=self.threshold_db,
@@ -178,6 +178,13 @@ class LiveAudioEnergyAnalyzer:
 
             # Record 1s energy points for frontend graph
             db, smooth, floor = compute_rms_series(audio)
+            previous = [p["smooth"] for p in self.energy_points if start_t - 180 <= p["t"] < start_t]
+            if len(previous) >= 15 and len(smooth):
+                baseline = float(np.median(previous))
+                peak_index = int(np.argmax(smooth))
+                level = float(smooth[peak_index])
+                if level >= -45 and level - baseline >= self.threshold_db:
+                    seg_peaks.insert(0, AudioPeak(start_t + peak_index, round(level - baseline, 1), level, baseline))
             self._current_floor = floor
             for i in range(len(smooth)):
                 t_sec = round(start_t + float(i), 1)

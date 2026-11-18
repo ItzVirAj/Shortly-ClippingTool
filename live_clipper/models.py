@@ -119,6 +119,7 @@ class LiveConfig:
 @dataclass
 class SessionStats:
     """Live runtime stats for session monitoring."""
+    last_decision: str = ""
     events_total: int = 0
     msgs_per_sec_now: float = 0.0
     msgs_per_min_now: int = 0

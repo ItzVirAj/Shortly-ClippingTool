@@ -1,6 +1,7 @@
 import Skipper from './Skipper';
+import Watchlist from './Watchlist';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Activity, History, Scissors, Film, Radio, Loader2, Bot, ArrowLeft, Zap, ChevronRight } from 'lucide-react';
+import { Activity, History, Scissors, Film, Radio, Loader2, Bot, ArrowLeft, Zap, Eye, ChevronRight } from 'lucide-react';
 import SkipperPortrait from './SkipperPortrait';
 import './liveDesk.css';
 import { apiJson } from '../../lib/api';
@@ -85,6 +86,26 @@ export default function LiveClipperTab({ onOpenInEditor }) {
   useEffect(() => {
     checkInitialState();
   }, [checkInitialState]);
+
+  // Watches can start a recording while the setup form is open.
+  useEffect(() => {
+    if (activeSession && !['failed', 'stopped'].includes(activeSession.state)) return;
+    let mounted = true;
+    const timer = setInterval(async () => {
+      try {
+        const { id } = await apiJson('/api/liveclipper/active');
+        if (!id || !mounted) return;
+        const session = await apiJson('/api/liveclipper/sessions/' + id);
+        if (mounted) {
+          lastPointTRef.current = 0;
+          setPoints([]); setSpikes([]); setLiveMessages([]); setChatStats({});
+          setAudioEnergy([]); setAudioPeaks([]); setHeatmap([]); setQueueItems([]);
+          setActiveSession(session);
+        }
+      } catch { /* Retry on the next poll. */ }
+    }, 5000);
+    return () => { mounted = false; clearInterval(timer); };
+  }, [activeSession?.id, activeSession?.state]);
 
   // 2. Incremental polling loop when an active session is running
   useEffect(() => {
@@ -353,6 +374,7 @@ export default function LiveClipperTab({ onOpenInEditor }) {
     : Math.max(queueCutting + activeManualCuts, Math.max(0, totalSpikes - clipsCut));
   const destinations = [
     ['live', Radio, 'Session'],
+    ['watch', Eye, 'Watchlist'],
     ['clips', Film, 'Clips'],
     ['history', History, 'History'],
     ['skipper', Bot, 'Skipper'],
@@ -434,6 +456,7 @@ export default function LiveClipperTab({ onOpenInEditor }) {
                   clipsCut={clipsCut}
                   clipsCutting={clipsCutting}
                 />
+                <p className="lc-hint" role="status">{activeSession.stats?.last_decision || "Listening for highlight signals…"}</p>
                 <LiveFeedPreview
                   session={activeSession}
                   messages={liveMessages}
@@ -562,6 +585,7 @@ export default function LiveClipperTab({ onOpenInEditor }) {
               <StartPanel onSessionStarted={handleSessionStarted} />
             )}
           </section>
+          {activeTabSubView === 'watch' && <Watchlist onOpen={handleSessionStarted} />}
           {activeTabSubView === 'clips' && review(queueItems)}
           {activeTabSubView === 'history' &&
             (selectedPastSession ? (

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
+from .watchlist import watchlist
 from .models import LiveConfig, LiveSession
 from .session import session_manager, clean_channel_slug, is_valid_uuid, resolve_session_path
 from .probe_webhook import verify_kick_signature
@@ -35,6 +36,8 @@ class CreateSessionRequest(BaseModel):
     max_session_hours: float = 12.0
     max_disk_gb: float = 20.0
     hook_mode: str = "auto"
+    audio_peaks_enabled: bool = True
+    heatmap_enabled: bool = True
     auto_process: bool = False
     wait_for_live: bool = False
     detector: Optional[Dict[str, Any]] = None
@@ -42,6 +45,49 @@ class CreateSessionRequest(BaseModel):
     mirror_video: bool = False
     webcam_mode: str = "auto"
     webcam_box: Optional[Dict[str, float]] = None
+
+
+class WatchCreatorRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    channels: Dict[str, str]
+    permission_ack: bool
+
+
+class WatchEnabledRequest(BaseModel):
+    enabled: bool
+
+
+@router.get("/watchlist")
+async def list_watches():
+    return [dict(row, **watchlist.status.get(row["id"], {})) for row in watchlist.entries()]
+
+
+@router.post("/watchlist", status_code=201)
+async def add_watch(req: WatchCreatorRequest):
+    try:
+        watchlist.add(req.name, req.channels, req.permission_ack)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return await list_watches()
+
+
+@router.patch("/watchlist/{key}")
+async def toggle_watch(key: str, req: WatchEnabledRequest):
+    rows = watchlist.entries()
+    for row in rows:
+        if row["id"] == key:
+            row["enabled"] = req.enabled
+            watchlist.status.pop(key, None)
+            watchlist.save(rows)
+            return await list_watches()
+    raise HTTPException(404, "Unknown creator")
+
+
+@router.delete("/watchlist/{key}")
+async def remove_watch(key: str):
+    watchlist.save([row for row in watchlist.entries() if row["id"] != key])
+    watchlist.status.pop(key, None)
+    return await list_watches()
 
 
 class StopSessionRequest(BaseModel):
@@ -109,6 +155,12 @@ async def create_session(req: CreateSessionRequest) -> Dict[str, str]:
         return {"id": session.session_id}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to start session: {e}")
+
+
+@router.get("/active")
+async def active_session():
+    session = session_manager.get_active_session()
+    return {"id": session.id if session else None}
 
 
 @router.get("/sessions")

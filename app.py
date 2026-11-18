@@ -4002,7 +4002,14 @@ async def lifespan(app: FastAPI):
         from cloud import geoip as _geoip
         _geoip.start(OUTPUT_DIR, wanted=lambda: bool(_queue_mode.slow_countries())
                      and not _queue_mode.killed())
+    watch_task = None
+    if not BILLING_ENABLED:
+        from live_clipper.watchlist import watchlist
+        watch_task = asyncio.create_task(watchlist.run())
     yield
+    if watch_task:
+        watch_task.cancel()
+        await asyncio.gather(watch_task, return_exceptions=True)
     # Cleanup (optional: cancel worker)
     try:
         from live_clipper.session import session_manager as _live_session_manager
