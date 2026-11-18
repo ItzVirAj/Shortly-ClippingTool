@@ -204,6 +204,8 @@ class LiveClipperSession:
         mirror_video: Optional[bool] = None,
         webcam_mode: Optional[str] = None,
         webcam_box: Optional[Dict[str, float]] = None,
+        audio_peak_db: Optional[float] = None,
+        audio_peaks_enabled: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Dynamically update detector sensitivity and capture parameters on the fly."""
         if ratio_threshold is not None:
@@ -247,6 +249,16 @@ class LiveClipperSession:
             parsed_box = _ci.parse_webcam_box(webcam_box)
             self.config.webcam_box = parsed_box
             self.session_data.config.webcam_box = parsed_box
+        if audio_peak_db is not None:
+            val = round(max(6.0, min(30.0, float(audio_peak_db))), 1)
+            self.config.audio_peak_db = val
+            self.session_data.config.audio_peak_db = val
+            if self.audio_analyzer is not None:
+                self.audio_analyzer.threshold_db = val
+        if audio_peaks_enabled is not None:
+            val = bool(audio_peaks_enabled)
+            self.config.audio_peaks_enabled = val
+            self.session_data.config.audio_peaks_enabled = val
 
         self.persist_session_json()
         return {
@@ -257,6 +269,8 @@ class LiveClipperSession:
             "mirror_video": bool(self.config.mirror_video),
             "webcam_mode": str(self.config.webcam_mode or "auto"),
             "webcam_box": self.config.webcam_box,
+            "audio_peak_db": float(self.config.audio_peak_db),
+            "audio_peaks_enabled": bool(self.config.audio_peaks_enabled),
         }
 
     def latest_media_path(self) -> Optional[Path]:
@@ -505,12 +519,13 @@ class LiveClipperSession:
                         segs = idx_data.get("segments", [])
                         new_peaks = await asyncio.to_thread(self.audio_analyzer.process_new_segments, segs)
                         for pk in new_peaks:
+                            if not self.config.audio_peaks_enabled:
+                                continue
                             self.audio_peaks.append(pk)
-                            logger.info(f"Audio Loudness Peak detected at {pk.t}s (+{pk.db_above_floor} dB) [{pk.label}]")
+                            logger.info(f"Audio Loudness Peak detected at {pk.t}s (+{pk.db_above_floor} dB, {pk.db_level} dBFS) [{pk.label}]")
 
-                            # If chat rate is slow/moderate or loud shout (+5 dB), auto-trigger audio clip
-                            _, msgs_min = self.get_chat_velocity_stats()
-                            if msgs_min < 40 or pk.db_above_floor >= 5.0:
+                            # Only trigger an audio spike when it genuinely exceeds the configured dB surge threshold
+                            if pk.db_above_floor >= self.config.audio_peak_db:
                                 audio_spike = Spike(
                                     id=f"sp_audio_{int(pk.t)}_{len(self._spikes) + 1}",
                                     onset=max(0.0, pk.t - 15.0),

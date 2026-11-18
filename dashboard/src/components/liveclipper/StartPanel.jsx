@@ -65,6 +65,7 @@ export default function StartPanel({ onSessionStarted }) {
 
   // Multi-signal toggles
   const [audioPeaksEnabled, setAudioPeaksEnabled] = useState(true);
+  const [audioPeakDb, setAudioPeakDb] = useState(14);
   const [heatmapEnabled, setHeatmapEnabled] = useState(true);
 
   // Advanced accordion
@@ -195,6 +196,7 @@ export default function StartPanel({ onSessionStarted }) {
       webcam_mode: webcamMode,
       webcam_box: webcamMode === 'custom' ? webcamBox : null,
       audio_peaks_enabled: Boolean(audioPeaksEnabled),
+      audio_peak_db: Number(audioPeakDb),
       heatmap_enabled: Boolean(heatmapEnabled),
       detector: {
         ratio_threshold: Number(customFilter.ratio_threshold),
@@ -329,6 +331,19 @@ export default function StartPanel({ onSessionStarted }) {
                 {name}
               </label>
             ))}
+            {audioPeaksEnabled && (
+              <label>
+                Loudness scream threshold (+{audioPeakDb} dB)
+                <input
+                  type="range"
+                  min="8"
+                  max="28"
+                  step="1"
+                  value={audioPeakDb}
+                  onChange={(e) => setAudioPeakDb(Number(e.target.value))}
+                />
+              </label>
+            )}
             {[
               ['ratio_threshold', 'Spike ratio', 1.2, 5, 0.05],
               ['min_count', 'Minimum messages', 2, 50, 1],
@@ -400,18 +415,18 @@ export default function StartPanel({ onSessionStarted }) {
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-white/[0.02]">
               <div className="flex items-center gap-2.5">
-                <BookOpen size={18} className="text-brass" />
+                <BookOpen size={18} className="text-[#f03b9f]" />
                 <div>
-                  <h3 className="text-base font-semibold text-ink">Live Clipper Studio Guide</h3>
-                  <p className="text-micro font-mono text-muted">
-                    Multi-signal detection, buffer strategy, & sensitivities
+                  <h3 className="text-base font-semibold text-white">Live Clipper Studio Guide</h3>
+                  <p className="text-micro font-mono text-white/50">
+                    Multi-signal detection, buffer strategy, &amp; sensitivities
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setShowGuideModal(false)}
-                className="p-1.5 rounded-full text-muted hover:text-ink hover:bg-white/10 transition-colors cursor-pointer"
+                className="p-1.5 rounded-full text-white/50 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
                 aria-label="Close Guide"
               >
                 <X size={18} />
@@ -419,40 +434,40 @@ export default function StartPanel({ onSessionStarted }) {
             </div>
 
             {/* Modal Body - Scrollable Cards */}
-            <div className="overflow-y-auto p-6 space-y-4 text-xs leading-relaxed text-ink/80">
+            <div className="overflow-y-auto p-6 space-y-4 text-xs leading-relaxed text-white/80">
               {/* Card 1: Multi-Signal Intelligence */}
               <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 space-y-2">
-                <div className="flex items-center gap-2 font-semibold text-ink text-sm">
-                  <Sparkles size={16} className="text-brass" />
+                <div className="flex items-center gap-2 font-semibold text-white text-sm">
+                  <Sparkles size={16} className="text-[#f03b9f]" />
                   <span>Multi-Signal Detection Engine</span>
                 </div>
-                <p className="text-muted">
+                <p className="text-white/55">
                   Shortly does not just monitor chat velocity—it listens to the audio and reads platform
                   retention graphs simultaneously to guarantee no epic moment is missed:
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
-                  <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 space-y-1">
-                    <span className="font-semibold text-ok flex items-center gap-1">
+                  <div className="p-2.5 rounded-xl bg-black/30 border border-white/[0.08] space-y-1">
+                    <span className="font-semibold text-emerald-400 flex items-center gap-1">
                       <Zap size={12} /> Chat Velocity
                     </span>
-                    <p className="text-[11px] text-muted">
+                    <p className="text-[11px] text-white/55">
                       Detects sudden message spikes against a moving 60s baseline window.
                     </p>
                   </div>
-                  <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 space-y-1">
-                    <span className="font-semibold text-brass flex items-center gap-1">
+                  <div className="p-2.5 rounded-xl bg-black/30 border border-white/[0.08] space-y-1">
+                    <span className="font-semibold text-[#f03b9f] flex items-center gap-1">
                       <Volume2 size={12} /> Audio Screams
                     </span>
-                    <p className="text-[11px] text-muted">
-                      16 kHz RMS volume analyzer catches loud screams, laughs, and +6dB hype peaks.
+                    <p className="text-[11px] text-white/55">
+                      16 kHz RMS volume analyzer catches loud screams, laughs, and hype peaks above normal speech.
                     </p>
                   </div>
-                  <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 space-y-1">
-                    <span className="font-semibold text-red-400 flex items-center gap-1">
+                  <div className="p-2.5 rounded-xl bg-black/30 border border-white/[0.08] space-y-1">
+                    <span className="font-semibold text-rose-400 flex items-center gap-1">
                       <Flame size={12} /> YouTube Heatmaps
                     </span>
-                    <p className="text-[11px] text-muted">
-                      Pulls "Most Replayed" viewer retention graphs from YouTube directly.
+                    <p className="text-[11px] text-white/55">
+                      Pulls &quot;Most Replayed&quot; viewer retention graphs from YouTube directly.
                     </p>
                   </div>
                 </div>
@@ -460,46 +475,43 @@ export default function StartPanel({ onSessionStarted }) {
 
               {/* Card 2: Sensitivity Guide */}
               <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 space-y-2">
-                <div className="flex items-center gap-2 font-semibold text-ink text-sm">
-                  <Scale size={16} className="text-brass" />
+                <div className="flex items-center gap-2 font-semibold text-white text-sm">
+                  <Scale size={16} className="text-[#f03b9f]" />
                   <span>Sensitivity Presets: Which one to choose?</span>
                 </div>
                 <div className="space-y-2 pt-1 font-mono text-[11.5px]">
-                  <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 flex items-start gap-2.5">
+                  <div className="p-2.5 rounded-xl bg-black/30 border border-white/[0.08] flex items-start gap-2.5">
                     <Coffee size={14} className="text-emerald-400 shrink-0 mt-0.5" />
                     <div>
-                      <span className="text-ink font-semibold">Quiet Chat (1.4× • 3+ msgs): </span>
-                      <span className="text-muted">
-                        For small streams or slow chats (1–25 viewers). Ensures even minor chuckles are
-                        captured.
+                      <span className="text-white font-semibold">Quiet Chat (1.25× • 3+ msgs): </span>
+                      <span className="text-white/55">
+                        For small streams or slow chats (1–25 viewers). Ensures even minor bursts are captured.
                       </span>
                     </div>
                   </div>
-                  <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 flex items-start gap-2.5">
-                    <Flame size={14} className="text-coral shrink-0 mt-0.5" />
+                  <div className="p-2.5 rounded-xl bg-black/30 border border-white/[0.08] flex items-start gap-2.5">
+                    <Flame size={14} className="text-rose-400 shrink-0 mt-0.5" />
                     <div>
-                      <span className="text-ink font-semibold">Aggressive (1.8× • 6+ msgs): </span>
-                      <span className="text-muted">
-                        High clip volume. Perfect for comedy, IRL banter, or streams where you want lots of
-                        candidate clips.
+                      <span className="text-white font-semibold">Aggressive (1.45× • 5+ msgs): </span>
+                      <span className="text-white/55">
+                        High clip volume. Perfect for comedy, IRL banter, or streams where you want lots of candidate clips.
                       </span>
                     </div>
                   </div>
-                  <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 flex items-start gap-2.5">
-                    <Scale size={14} className="text-brass shrink-0 mt-0.5" />
+                  <div className="p-2.5 rounded-xl bg-black/30 border border-white/[0.08] flex items-start gap-2.5">
+                    <Scale size={14} className="text-[#f03b9f] shrink-0 mt-0.5" />
                     <div>
-                      <span className="text-ink font-semibold">Balanced (2.6× • 12+ msgs) [Default]: </span>
-                      <span className="text-muted">
-                        Ideal for standard active streams. Strong highlights with virtually zero false alarm
-                        clutter.
+                      <span className="text-white font-semibold">Balanced (1.8× • 8+ msgs) [Default]: </span>
+                      <span className="text-white/55">
+                        Ideal for standard active streams. Strong highlights with low false alarm clutter.
                       </span>
                     </div>
                   </div>
-                  <div className="p-2.5 rounded-xl bg-black/20 border border-white/5 flex items-start gap-2.5">
+                  <div className="p-2.5 rounded-xl bg-black/30 border border-white/[0.08] flex items-start gap-2.5">
                     <Zap size={14} className="text-purple-400 shrink-0 mt-0.5" />
                     <div>
-                      <span className="text-ink font-semibold">Hype / Raids (4.0× • 25+ msgs): </span>
-                      <span className="text-muted">
+                      <span className="text-white font-semibold">Hype / Raids (2.5× • 16+ msgs): </span>
+                      <span className="text-white/55">
                         Only triggers on viral raids, dramatic tournament clutches, and massive chat floods.
                       </span>
                     </div>
@@ -509,20 +521,20 @@ export default function StartPanel({ onSessionStarted }) {
 
               {/* Card 3: Storage Strategies */}
               <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 space-y-2">
-                <div className="flex items-center gap-2 font-semibold text-ink text-sm">
-                  <HardDrive size={16} className="text-brass" />
+                <div className="flex items-center gap-2 font-semibold text-white text-sm">
+                  <HardDrive size={16} className="text-[#f03b9f]" />
                   <span>Buffer Memory vs Full Recording</span>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-muted">
-                  <div className="p-3 rounded-xl bg-black/20 border border-white/5 space-y-1">
-                    <span className="font-semibold text-ink">Rolling Ring Buffer (~240 MB)</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-white/55">
+                  <div className="p-3 rounded-xl bg-black/30 border border-white/[0.08] space-y-1">
+                    <span className="font-semibold text-white">Rolling Ring Buffer (~240 MB)</span>
                     <p>
                       Keeps the last 8–30 minutes of stream video in a cyclic ring buffer. Older segments are
                       pruned automatically so your local SSD never fills up.
                     </p>
                   </div>
-                  <div className="p-3 rounded-xl bg-black/20 border border-white/5 space-y-1">
-                    <span className="font-semibold text-ink">Full Recording (~1.8 GB / hr)</span>
+                  <div className="p-3 rounded-xl bg-black/30 border border-white/[0.08] space-y-1">
+                    <span className="font-semibold text-white">Full Recording (~1.8 GB / hr)</span>
                     <p>
                       Saves the entire live broadcast to your drive from start to finish. Best if you want to
                       keep the whole VOD for manual editing later.
@@ -533,14 +545,14 @@ export default function StartPanel({ onSessionStarted }) {
 
               {/* Card 4: Shortly Pipeline */}
               <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 space-y-1.5">
-                <div className="flex items-center gap-2 font-semibold text-ink text-sm">
-                  <Layers size={16} className="text-brass" />
+                <div className="flex items-center gap-2 font-semibold text-white text-sm">
+                  <Layers size={16} className="text-[#f03b9f]" />
                   <span>Auto AI Shorts Pipeline</span>
                 </div>
-                <p className="text-muted">
+                <p className="text-white/55">
                   Once a highlight moment is confirmed, Shortly cuts the video with a 25s lead-in, reframes it
-                  to 9:16 vertical using face & action tracking, animates word-level subtitles, and overlays a
-                  Gemini AI title hook ready for TikTok, Shorts, and Reels.
+                  to 9:16 vertical using face &amp; webcam tracking, animates word-level subtitles, and overlays a
+                  3–4 word AI title hook ready for TikTok, Shorts, and Reels.
                 </p>
               </div>
             </div>
@@ -550,7 +562,7 @@ export default function StartPanel({ onSessionStarted }) {
               <button
                 type="button"
                 onClick={() => setShowGuideModal(false)}
-                className="px-4 py-2 rounded-xl bg-brass text-brassink font-semibold text-xs hover:brightness-105 active:scale-95 transition-all cursor-pointer"
+                className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#e31084] to-[#f03b9f] text-white font-semibold text-xs shadow-[0_4px_18px_rgba(227,16,132,0.35)] border-t border-white/20 hover:brightness-110 active:scale-[0.97] transition-all cursor-pointer"
               >
                 Got It
               </button>

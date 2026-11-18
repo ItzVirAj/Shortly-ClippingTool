@@ -345,6 +345,30 @@ def _dim_hex_color(hex_color, opacity, fallback="FFFFFF"):
     return f"{r:02X}{g:02X}{b:02X}"
 
 
+def compute_ass_vertical_placement(alignment='bottom', margin_v=SAFE_MARGIN_V,
+                                   y_ratio=None, final_fontsize=37, play_res_y=288):
+    """Resolve (ass_alignment, margin_v) in ASS PlayResY units.
+
+    When ``y_ratio`` (0.0=top .. 1.0=bottom) is explicitly supplied, places the
+    vertical center of the caption line at ``y_ratio * play_res_y`` using
+    top-center (8) for the upper half and bottom-center (2) for the lower half.
+    """
+    align_map = {'top': 8, 'middle': 5, 'bottom': 2}
+    if y_ratio is not None:
+        try:
+            yr = max(0.04, min(0.96, float(y_ratio)))
+            half_line = max(4.0, float(final_fontsize) * 0.5)
+            if yr < 0.5:
+                mv = int(round(play_res_y * yr - half_line))
+                return 8, max(4, min(play_res_y - 24, mv))
+            mv = int(round(play_res_y * (1.0 - yr) - half_line))
+            return 2, max(4, min(play_res_y - 24, mv))
+        except (TypeError, ValueError):
+            pass
+    ass_alignment = align_map.get(str(alignment).lower(), 2)
+    return ass_alignment, int(_clamp_number(margin_v, 0, 260, SAFE_MARGIN_V))
+
+
 def generate_ass(transcript, clip_start, clip_end, output_path,
                  max_chars=20, max_duration=2.0, alignment='bottom',
                  fontsize=16, font_name="Verdana", font_color="#FFFFFF",
@@ -352,7 +376,7 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
                  highlight_color="#FFD700", bg_color="#000000", bg_opacity=0.0,
                  effect="none", base_opacity=1.0, uppercase=False,
                  margin_v=SAFE_MARGIN_V, split_ranges=None,
-                 reveal=False, shadow=0):
+                 reveal=False, shadow=0, y_ratio=None):
     """
     Generates a karaoke-style ASS file: each block is shown like the SRT path,
     but the currently spoken word is rendered in highlight_color (modern
@@ -381,8 +405,13 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
     if final_fontsize < 10:
         final_fontsize = 10
 
-    align_map = {'top': 8, 'middle': 5, 'bottom': 2}
-    ass_alignment = align_map.get(str(alignment).lower(), 2)
+    ass_alignment, resolved_margin_v = compute_ass_vertical_placement(
+        alignment=alignment,
+        margin_v=margin_v,
+        y_ratio=y_ratio,
+        final_fontsize=final_fontsize,
+        play_res_y=288,
+    )
 
     # On a SPLIT scene the two speakers are stacked and the seam between the
     # halves (exactly mid-frame) is the one place the text covers nobody, so
@@ -392,7 +421,8 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
     # (start, end) in clip seconds (layout_ranges.split_ranges); the style's
     # own alignment still rules everywhere else. Only the ASS path can do
     # this: SRT burns carry one alignment for the whole file.
-    seam_ranges = [(float(a), float(b)) for a, b in (split_ranges or [])]
+    # If the user dragged an explicit y_ratio, honor their placement everywhere.
+    seam_ranges = [] if y_ratio is not None else [(float(a), float(b)) for a, b in (split_ranges or [])]
 
     def seam_prefix(t):
         return "{\\an5}" if any(a <= t < b for a, b in seam_ranges) else ""
@@ -455,7 +485,7 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
             f"Style: Active,{safe_font},{final_fontsize},"
             f"{hex_to_ass_color(on_box, 1.0)},{hex_to_ass_color(on_box, 1.0)},"
             f"{box_colour},{box_colour},1,0,0,0,100,100,0,0,3,{pad},0,"
-            f"{ass_alignment},10,10,{int(_clamp_number(margin_v, 0, 200, SAFE_MARGIN_V))},1\n"
+            f"{ass_alignment},10,10,{resolved_margin_v},1\n"
         )
 
     header = (
@@ -472,7 +502,7 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
         f"Style: Default,{safe_font},{final_fontsize},{primary_colour},{primary_colour},"
         f"{outline_colour},{back_colour},1,0,0,0,100,100,0,0,{border_style},"
-        f"{outline_width},{shadow},{ass_alignment},10,10,{int(_clamp_number(margin_v, 0, 200, SAFE_MARGIN_V))},1\n"
+        f"{outline_width},{shadow},{ass_alignment},10,10,{resolved_margin_v},1\n"
         f"{active_style}"
         "\n"
         "[Events]\n"

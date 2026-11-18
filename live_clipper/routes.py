@@ -42,6 +42,9 @@ class CreateSessionRequest(BaseModel):
     wait_for_live: bool = False
     detector: Optional[Dict[str, Any]] = None
     credit_text: Optional[str] = None
+    audio_peaks_enabled: bool = True
+    audio_peak_db: float = 14.0
+    heatmap_enabled: bool = True
     mirror_video: bool = False
     webcam_mode: str = "auto"
     webcam_box: Optional[Dict[str, float]] = None
@@ -270,6 +273,8 @@ class UpdateDetectorRequest(BaseModel):
     mirror_video: Optional[bool] = None
     webcam_mode: Optional[str] = None
     webcam_box: Optional[Dict[str, float]] = None
+    audio_peak_db: Optional[float] = None
+    audio_peaks_enabled: Optional[bool] = None
 
 
 @router.patch("/sessions/{session_id}/detector")
@@ -290,6 +295,8 @@ async def update_session_detector(session_id: str, req: UpdateDetectorRequest) -
         mirror_video=req.mirror_video,
         webcam_mode=req.webcam_mode,
         webcam_box=req.webcam_box,
+        audio_peak_db=req.audio_peak_db,
+        audio_peaks_enabled=req.audio_peaks_enabled,
     )
     return {"ok": True, "detector": updated}
 

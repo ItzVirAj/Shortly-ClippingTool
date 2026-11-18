@@ -199,9 +199,9 @@ export default function LiveSessionPanel({
 
       {/* Waiting for Live Standby Banner */}
       {isWaitingForLive && (
-        <div className="p-2.5 rounded-xl bg-warn/10 border border-warn/25 text-warn text-xs flex items-center justify-between gap-3 animate-fade font-mono">
+        <div className="mt-3 p-3 rounded-xl bg-[#e31084]/12 border border-[#e31084]/35 text-pink-100 text-xs flex items-center justify-between gap-3 animate-fade font-mono">
           <div className="flex items-center gap-2">
-            <Loader2 size={13} className="animate-spin text-warn shrink-0" />
+            <Loader2 size={13} className="animate-spin text-[#f03b9f] shrink-0" />
             <span className="text-micro">
               Stream is offline. Polling every 30s. Recording begins automatically when live.
             </span>
@@ -209,7 +209,7 @@ export default function LiveSessionPanel({
           <button
             type="button"
             onClick={handleConfirmStop}
-            className="px-2 py-0.5 rounded bg-warn/20 hover:bg-warn/30 text-warn border border-warn/40 text-micro font-medium"
+            className="px-2.5 py-1 rounded-lg bg-[#e31084] hover:brightness-110 text-white text-micro font-semibold"
           >
             Cancel
           </button>

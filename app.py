@@ -1477,6 +1477,10 @@ def _canonical_clip_file(output_dir, base_name, index):
                    + glob.glob(os.path.join(output_dir, f"recut_*_{clean}"))
                    + glob.glob(os.path.join(output_dir, f"hooked_*_{clean}"))
                    + glob.glob(os.path.join(output_dir, f"hook_{clean}"))
+                   + glob.glob(os.path.join(output_dir, f"kick_*{clean}"))
+                   + glob.glob(os.path.join(output_dir, f"youtube_*{clean}"))
+                   + glob.glob(os.path.join(output_dir, f"twitch_*{clean}"))
+                   + glob.glob(os.path.join(output_dir, f"instagram_*{clean}"))
                    + glob.glob(os.path.join(output_dir, f"wm_*{clean}")))
     except Exception:
         derived = []
@@ -5045,6 +5049,19 @@ async def process_endpoint(
     mirror_video: Optional[str] = Form(None),
     webcam_mode: Optional[str] = Form(None),
     webcam_box: Optional[str] = Form(None),
+    keep_full_clip: Optional[str] = Form(None),
+    hook_position: Optional[str] = Form(None),
+    hook_y: Optional[str] = Form(None),
+    hook_scale: Optional[str] = Form(None),
+    subtitle_position: Optional[str] = Form(None),
+    subtitle_y: Optional[str] = Form(None),
+    subtitle_scale: Optional[str] = Form(None),
+    subtitle_color: Optional[str] = Form(None),
+    subtitle_highlight_color: Optional[str] = Form(None),
+    brand_frame_type: Optional[str] = Form(None),
+    brand_frame_text: Optional[str] = Form(None),
+    brand_frame_y: Optional[str] = Form(None),
+    brand_frame_scale: Optional[str] = Form(None),
 ):
     # Handle JSON body manually for URL payload
     content_type = request.headers.get("content-type", "")
@@ -5079,13 +5096,27 @@ async def process_endpoint(
         mirror_video = body.get("mirror_video", mirror_video)
         webcam_mode = body.get("webcam_mode", webcam_mode)
         webcam_box = body.get("webcam_box", webcam_box)
+        keep_full_clip = body.get("keep_full_clip", keep_full_clip)
+        hook_position = body.get("hook_position", hook_position)
+        hook_y = body.get("hook_y", hook_y)
+        hook_scale = body.get("hook_scale", hook_scale)
+        subtitle_position = body.get("subtitle_position", subtitle_position)
+        subtitle_y = body.get("subtitle_y", subtitle_y)
+        subtitle_scale = body.get("subtitle_scale", subtitle_scale)
+        subtitle_color = body.get("subtitle_color", subtitle_color)
+        subtitle_highlight_color = body.get("subtitle_highlight_color", subtitle_highlight_color)
+        brand_frame_type = body.get("brand_frame_type", brand_frame_type)
+        brand_frame_text = body.get("brand_frame_text", brand_frame_text)
+        brand_frame_y = body.get("brand_frame_y", brand_frame_y)
+        brand_frame_scale = body.get("brand_frame_scale", brand_frame_scale)
     else:
         ack_flag = str(acknowledged).lower() in ("1", "true", "yes")
         force_low = str(force_low_quality).lower() in ("1", "true", "yes")
 
     is_manual = str(mode).strip().lower() in ("manual", "free", "byo", "byo-agent")
+    is_keep_full = (keep_full_clip is True) or (str(keep_full_clip).strip().lower() in ("1", "true", "yes"))
     api_key = await resolve_gemini(request)
-    if not is_manual and not api_key and not (llm_backend.active() and not BILLING_ENABLED):
+    if not is_manual and not is_keep_full and not api_key and not (llm_backend.active() and not BILLING_ENABLED):
         # Self-host with an OpenAI-compatible server configured needs no
         # Google key for the core pipeline: the moment picker runs there and
         # the frame-based stages degrade on their own (layout_picker returns
@@ -5214,12 +5245,82 @@ async def process_endpoint(
         from hooks import HOOK_STYLES
         if auto_hook_style in HOOK_STYLES:
             env["AUTO_HOOK_STYLE"] = auto_hook_style
-        print(f"[auto-hook] job={job_id} style={env.get('AUTO_HOOK_STYLE', 'classic')}")
+        hp = str(hook_position or "").strip().lower()
+        if hp in ("auto", "very_top", "top", "center", "bottom", "custom"):
+            env["AUTO_HOOK_POSITION"] = hp
+        if hook_y not in (None, ""):
+            try:
+                env["AUTO_HOOK_Y"] = f"{max(0.02, min(0.92, float(hook_y))):.4f}"
+            except (TypeError, ValueError):
+                pass
+        if hook_scale not in (None, ""):
+            try:
+                env["AUTO_HOOK_SCALE"] = f"{max(0.5, min(1.8, float(hook_scale))):.3f}"
+            except (TypeError, ValueError):
+                pass
+        print(
+            f"[auto-hook] job={job_id} style={env.get('AUTO_HOOK_STYLE', 'classic')} "
+            f"pos={env.get('AUTO_HOOK_POSITION', 'auto')} y={env.get('AUTO_HOOK_Y', '-')} "
+            f"scale={env.get('AUTO_HOOK_SCALE', '1.0')}"
+        )
+
+    # Pre-render subtitle placement & size overrides
+    sp = str(subtitle_position or "").strip().lower()
+    if sp in ("auto", "top", "middle", "bottom", "custom"):
+        env["SUBTITLE_POSITION"] = sp
+    if subtitle_y not in (None, ""):
+        try:
+            env["SUBTITLE_Y"] = f"{max(0.06, min(0.95, float(subtitle_y))):.4f}"
+        except (TypeError, ValueError):
+            pass
+    if subtitle_scale not in (None, ""):
+        try:
+            env["SUBTITLE_SCALE"] = f"{max(0.5, min(1.8, float(subtitle_scale))):.3f}"
+        except (TypeError, ValueError):
+            pass
+    _hex_re = re.compile(r'^#[0-9A-Fa-f]{6}$')
+    if subtitle_color and _hex_re.match(str(subtitle_color).strip()):
+        env["SUBTITLE_COLOR"] = str(subtitle_color).strip().upper()
+    if subtitle_highlight_color and _hex_re.match(str(subtitle_highlight_color).strip()):
+        env["SUBTITLE_HIGHLIGHT_COLOR"] = str(subtitle_highlight_color).strip().upper()
+    if any(k in env for k in ("SUBTITLE_POSITION", "SUBTITLE_Y", "SUBTITLE_SCALE", "SUBTITLE_COLOR", "SUBTITLE_HIGHLIGHT_COLOR")):
+        print(
+            f"[subtitles] job={job_id} pos={env.get('SUBTITLE_POSITION', 'auto')} "
+            f"y={env.get('SUBTITLE_Y', '-')} scale={env.get('SUBTITLE_SCALE', '1.0')} "
+            f"color={env.get('SUBTITLE_COLOR', '-')} hi={env.get('SUBTITLE_HIGHLIGHT_COLOR', '-')}"
+        )
+
+    # Pre-render optional Brand Frame (Kick / YouTube / Twitch / Instagram + handle text)
+    bft = str(brand_frame_type or "").strip().lower()
+    if bft == "yt":
+        bft = "youtube"
+    if bft in ("kick", "youtube", "twitch", "instagram"):
+        env["BRAND_FRAME_TYPE"] = bft
+        if brand_frame_text and str(brand_frame_text).strip():
+            env["BRAND_FRAME_TEXT"] = str(brand_frame_text).strip()[:60]
+        if brand_frame_y not in (None, ""):
+            try:
+                env["BRAND_FRAME_Y"] = f"{max(0.03, min(0.98, float(brand_frame_y))):.4f}"
+            except (TypeError, ValueError):
+                pass
+        if brand_frame_scale not in (None, ""):
+            try:
+                env["BRAND_FRAME_SCALE"] = f"{max(0.3, min(1.8, float(brand_frame_scale))):.3f}"
+            except (TypeError, ValueError):
+                pass
+        print(
+            f"[brand-frame] job={job_id} type={bft} text={env.get('BRAND_FRAME_TEXT', '-')} "
+            f"y={env.get('BRAND_FRAME_Y', '-')} scale={env.get('BRAND_FRAME_SCALE', '1.0')}"
+        )
 
     mirror_flag = (mirror_video is True) or (str(mirror_video).strip().lower() in ("1", "true", "yes"))
     if mirror_flag:
         env["MIRROR_VIDEO"] = "1"
         print(f"[mirror] job={job_id} enabled")
+
+    if is_keep_full:
+        env["KEEP_FULL_CLIP"] = "1"
+        print(f"[keep-full-clip] job={job_id} enabled (transcribe + subtitles, no cuts)")
 
     if webcam_mode is not None or webcam_box is not None:
         import camera_inset as _ci
@@ -5284,7 +5385,7 @@ async def process_endpoint(
         # upload; the transcript rides along so the pipeline skips Whisper.
         src = thumb_session["video_path"]
         src_duration = _media_duration_seconds(src)
-        if MIN_SOURCE_SECONDS > 0 and 0 < src_duration < MIN_SOURCE_SECONDS:
+        if not is_keep_full and MIN_SOURCE_SECONDS > 0 and 0 < src_duration < MIN_SOURCE_SECONDS:
             shutil.rmtree(job_output_dir, ignore_errors=True)
             _reject_short_source(src_duration)
         input_path = os.path.join(UPLOAD_DIR, f"{job_id}_{os.path.basename(src)}")
@@ -5305,7 +5406,7 @@ async def process_endpoint(
         # with the job like any other upload; the slot is consumed.
         src = upload_slot["path"]
         src_duration = _media_duration_seconds(src)
-        if MIN_SOURCE_SECONDS > 0 and 0 < src_duration < MIN_SOURCE_SECONDS:
+        if not is_keep_full and MIN_SOURCE_SECONDS > 0 and 0 < src_duration < MIN_SOURCE_SECONDS:
             shutil.rmtree(job_output_dir, ignore_errors=True)
             _reject_short_source(src_duration)
         input_path = os.path.join(UPLOAD_DIR, f"{job_id}_{upload_slot['filename']}")
@@ -5333,7 +5434,7 @@ async def process_endpoint(
                 buffer.write(content)
 
         upload_duration = _media_duration_seconds(input_path)
-        if MIN_SOURCE_SECONDS > 0 and 0 < upload_duration < MIN_SOURCE_SECONDS:
+        if not is_keep_full and MIN_SOURCE_SECONDS > 0 and 0 < upload_duration < MIN_SOURCE_SECONDS:
             os.remove(input_path)
             shutil.rmtree(job_output_dir, ignore_errors=True)
             _reject_short_source(upload_duration)
@@ -6533,6 +6634,7 @@ async def get_clip_edl(job_id: str, clip_index: int, request: Request):
         "stickers": clip.get("stickers", []),
         "kick_framed": bool(clip.get("kick_framed") or "kick_" in (clip.get("video_url") or "")),
         "frame_type": clip.get('frame_type') or ('kick' if clip.get('kick_framed') else None),
+        "frame_text": clip.get('frame_text', ''),
         "frame_scale": clip.get('frame_scale', 1.0),
         "frame_x_pct": clip.get('frame_x_pct', 0.0),
         "frame_y_pct": clip.get('frame_y_pct', None),
@@ -6590,6 +6692,7 @@ class RerenderRequest(BaseModel):
     framing: Optional[str] = None
     kick_frame: Optional[bool] = None
     frame_type: Optional[str] = Field(default=None, pattern=r"^(none|kick|youtube|twitch|instagram)$")
+    frame_text: Optional[str] = Field(default=None, max_length=60)
     frame_scale: Optional[float] = Field(default=None, ge=0.2, le=2, allow_inf_nan=False)
     frame_x_pct: Optional[float] = Field(default=None, ge=-0.4, le=0.4, allow_inf_nan=False)
     frame_y_pct: Optional[float] = Field(default=None, ge=0, le=1, allow_inf_nan=False)
@@ -6759,10 +6862,11 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
             scale = req.frame_scale if req.frame_scale is not None else clip.get('frame_scale', 1.0)
             x_pct = req.frame_x_pct if req.frame_x_pct is not None else clip.get('frame_x_pct', 0.0)
             y_pct = req.frame_y_pct if 'frame_y_pct' in req.model_fields_set else clip.get('frame_y_pct', None)
+            f_text = req.frame_text if req.frame_text is not None else clip.get('frame_text', '')
             framed_name = f"{active_frame}_{served_name}"
             framed_path = os.path.join(output_dir, framed_name)
             recut_path = os.path.join(output_dir, served_name)
-            ok_frame = await loop.run_in_executor(None, apply_brand_frame, recut_path, framed_path, active_frame, scale, x_pct, y_pct)
+            ok_frame = await loop.run_in_executor(None, apply_brand_frame, recut_path, framed_path, active_frame, scale, x_pct, y_pct, f_text)
             if not ok_frame or not os.path.exists(framed_path):
                 raise RuntimeError("Frame rendering failed. Your previous export is unchanged.")
             served_name = framed_name
@@ -6797,6 +6901,7 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
         updates = {'video_url': new_video_url, 'editor_preview_url': editor_preview_url, 'start': new_start,
                    'end': new_end, 'recipe': new_recipe,
                    'frame_type': active_frame if (active_frame and active_frame != 'none') else None,
+                   'frame_text': f_text if (active_frame and active_frame != 'none') else '',
                    'frame_scale': scale if (active_frame and active_frame != 'none') else 1.0,
                    'frame_x_pct': x_pct if (active_frame and active_frame != 'none') else 0.0,
                    'frame_y_pct': y_pct if (active_frame and active_frame != 'none') else None,
@@ -6859,6 +6964,7 @@ class ClipFrameRequest(BaseModel):
     job_id: str
     clip_index: int
     frame_type: str = "kick"
+    frame_text: str = ""
     remove: bool = False
     scale: float = 1.0
     x_pct: float = 0.0
@@ -6929,7 +7035,7 @@ async def apply_clip_frame(req: ClipFrameRequest, request: Request):
     output_path = os.path.join(output_dir, framed_name)
 
     loop = asyncio.get_event_loop()
-    ok = await loop.run_in_executor(None, apply_brand_frame, input_path, output_path, req.frame_type, req.scale, req.x_pct, req.y_pct)
+    ok = await loop.run_in_executor(None, apply_brand_frame, input_path, output_path, req.frame_type, req.scale, req.x_pct, req.y_pct, req.frame_text)
     if not ok or not os.path.exists(output_path):
         raise HTTPException(status_code=500, detail=f"Failed to apply {req.frame_type} frame")
 
@@ -6937,6 +7043,7 @@ async def apply_clip_frame(req: ClipFrameRequest, request: Request):
     clip['clean_file'] = input_file
     clip['video_url'] = f"/videos/{req.job_id}/{framed_name}"
     clip['frame_type'] = req.frame_type
+    clip['frame_text'] = req.frame_text
     clip['frame_scale'] = req.scale
     clip['frame_x_pct'] = req.x_pct
     clip['frame_y_pct'] = req.y_pct
@@ -6949,6 +7056,7 @@ async def apply_clip_frame(req: ClipFrameRequest, request: Request):
         "ok": True,
         "new_video_url": clip['video_url'],
         "frame_type": req.frame_type,
+        "frame_text": req.frame_text,
         "frame_scale": req.scale,
         "frame_x_pct": req.x_pct,
         "frame_y_pct": req.y_pct,

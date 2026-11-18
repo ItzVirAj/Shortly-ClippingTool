@@ -346,9 +346,9 @@ export default function LiveClipperTab({ onOpenInEditor }) {
 
   if (initialLoading) {
     return (
-      <div className="flex flex-col items-center justify-center py-32 text-muted gap-3 font-mono text-sm">
-        <Loader2 size={32} className="animate-spin text-brass" />
-        <span>Initializing Live Clipper...</span>
+      <div className="flex flex-col items-center justify-center py-32 text-white/60 gap-3 font-mono text-xs">
+        <Loader2 size={28} className="animate-spin text-[#f03b9f]" />
+        <span>Initializing Live Clipper…</span>
       </div>
     );
   }
@@ -397,47 +397,91 @@ export default function LiveClipperTab({ onOpenInEditor }) {
     }
   }
   return (
-    <section className="lc-window" aria-label="Live Clipper">
-      <div className="lc-bar">
-        <h1>
-          <Activity size={20} />
-          Live Clipper
-        </h1>
-        <span className="lc-state" role="status">
-          {running ? activeSession.state.replaceAll('_', ' ') : 'Standby'}
-        </span>
-      </div>
-      <div className="lc-body">
-        <aside className="lc-rail">
-          <nav aria-label="Live Clipper views">
-            {destinations.map(([key, Icon, label]) => (
-              <button
-                key={key}
-                aria-current={activeTabSubView === key ? 'page' : undefined}
-                onClick={() => setActiveTabSubView(key)}
-              >
-                <Icon size={17} />
-                <span>{label}</span>
-                {key === 'clips' && <small>{queueItems.length}</small>}
-              </button>
-            ))}
-          </nav>
-          <button
-            className="lc-companion"
-            onClick={() => setActiveTabSubView('skipper')}
-            aria-label="Open Skipper automation"
-          >
-            <SkipperPortrait />
-            <span>
-              Skipper <span aria-hidden="true">↗</span>
-            </span>
-          </button>
-        </aside>
-        <div className="lc-pane">
-          {connectionLost && (
-            <p role="alert">
-              Connection lost. Reconnecting… <button onClick={checkInitialState}>Retry now</button>
+    <section
+      className="lc-window h-full overflow-y-auto custom-scrollbar animate-fade relative z-10"
+      aria-label="Live Clipper"
+    >
+      <div className="w-full max-w-6xl mx-auto px-4 sm:px-8 pt-4 pb-8 sm:pt-6 sm:pb-10 space-y-5">
+        {/* Unified Shortly Apple Glass Header + Segmented Navigation */}
+        <header className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 pb-4 border-b border-white/[0.08]">
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.06] border border-white/[0.12] backdrop-blur-xl shadow-xs">
+              <span className="relative flex h-2 w-2">
+                {running && (
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                )}
+                <span
+                  className={`relative inline-flex rounded-full h-2 w-2 ${
+                    running ? 'bg-emerald-400' : 'bg-[#f03b9f]'
+                  }`}
+                />
+              </span>
+              <span className="text-[11px] font-medium tracking-[0.06em] text-white/80 font-mono uppercase" role="status">
+                {running ? `LIVE · ${activeSession.state.replaceAll('_', ' ')}` : 'LIVE CLIPPER · STANDBY'}
+              </span>
+            </div>
+
+            <h1 className="font-display text-3xl sm:text-4xl text-white tracking-[-0.025em] flex items-center gap-3">
+              <span>Live Clipper</span>
+            </h1>
+
+            <p className="text-white/60 text-xs sm:text-sm leading-relaxed max-w-xl font-normal">
+              Detect viral spikes automatically from chat velocity, audio peaks &amp; heatmaps and cut vertical Shorts in real time.
             </p>
+          </div>
+
+          {/* Apple Translucent Segmented Navigation Bar */}
+          <nav
+            aria-label="Live Clipper views"
+            className="inline-flex flex-wrap items-center p-1 rounded-2xl sm:rounded-full bg-black/45 border border-white/[0.09] backdrop-blur-2xl shadow-inner gap-1 shrink-0 self-start lg:self-end"
+          >
+            {destinations.map(([key, Icon, label]) => {
+              const active = activeTabSubView === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  aria-current={active ? 'page' : undefined}
+                  onClick={() => setActiveTabSubView(key)}
+                  className={`inline-flex items-center gap-1.5 py-2 px-3.5 rounded-xl sm:rounded-full text-xs font-semibold transition-all duration-150 cursor-pointer active:scale-[0.97] ${
+                    active
+                      ? 'bg-gradient-to-r from-[#e31084] to-[#f03b9f] text-white shadow-[0_2px_14px_rgba(227,16,132,0.38)] border-t border-white/20'
+                      : 'text-white/65 hover:text-white hover:bg-white/[0.06]'
+                  }`}
+                >
+                  <Icon size={13} className={active ? 'text-white' : 'text-white/50'} />
+                  <span>{label}</span>
+                  {key === 'clips' && queueItems.length > 0 && (
+                    <span
+                      className={`ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-mono tabular-nums leading-none ${
+                        active ? 'bg-black/25 text-white' : 'bg-white/[0.1] text-white/80'
+                      }`}
+                    >
+                      {queueItems.length}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+        </header>
+
+        {/* Main Workspace Pane */}
+        <div className="lc-pane space-y-5">
+          {connectionLost && (
+            <div
+              role="alert"
+              className="px-4 py-3 rounded-2xl bg-[#e31084]/12 border border-[#e31084]/35 text-pink-100 text-xs flex items-center justify-between gap-3 backdrop-blur-xl"
+            >
+              <span>Connection lost. Reconnecting to live session…</span>
+              <button
+                type="button"
+                onClick={checkInitialState}
+                className="px-3 py-1 rounded-lg bg-[#e31084] hover:brightness-110 text-white font-semibold text-xs"
+              >
+                Retry now
+              </button>
+            </div>
           )}
           <section hidden={activeTabSubView !== 'live'}>
             {running ? (
@@ -476,7 +520,11 @@ export default function LiveClipperTab({ onOpenInEditor }) {
                       : 0
                   }
                   sessionId={activeSession.id}
-                  detectorConfig={activeSession.config?.detector}
+                  detectorConfig={{
+                    ...(activeSession.config?.detector || {}),
+                    cooldown_sec: activeSession.config?.cooldown_sec,
+                    audio_peak_db: activeSession.config?.audio_peak_db ?? 14,
+                  }}
                   msgsPerMin={rate}
                   msgsPerSec={chatStats.msgs_per_sec || activeSession?.stats?.msgs_per_sec_now || 0}
                   totalSpikes={totalSpikes}
@@ -489,6 +537,8 @@ export default function LiveClipperTab({ onOpenInEditor }) {
                             ...prev,
                             config: {
                               ...prev.config,
+                              ...(newCfg.cooldown_sec !== undefined ? { cooldown_sec: newCfg.cooldown_sec } : {}),
+                              ...(newCfg.audio_peak_db !== undefined ? { audio_peak_db: newCfg.audio_peak_db } : {}),
                               detector: {
                                 ...prev.config?.detector,
                                 ...newCfg,

@@ -105,6 +105,7 @@ export default function LiveChatGraph({
   const [activeRatio, setActiveRatio] = useState(detectorConfig?.ratio_threshold || 2.5);
   const [activeCount, setActiveCount] = useState(detectorConfig?.min_count || 5);
   const [activeCooldown, setActiveCooldown] = useState(detectorConfig?.cooldown_sec || 60);
+  const [activeAudioDb, setActiveAudioDb] = useState(detectorConfig?.audio_peak_db ?? 14);
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
 
   useEffect(() => {
@@ -112,6 +113,7 @@ export default function LiveChatGraph({
       if (detectorConfig.ratio_threshold !== undefined) setActiveRatio(detectorConfig.ratio_threshold);
       if (detectorConfig.min_count !== undefined) setActiveCount(detectorConfig.min_count);
       if (detectorConfig.cooldown_sec !== undefined) setActiveCooldown(detectorConfig.cooldown_sec);
+      if (detectorConfig.audio_peak_db !== undefined) setActiveAudioDb(detectorConfig.audio_peak_db);
     }
   }, [detectorConfig]);
 
@@ -280,9 +282,10 @@ export default function LiveChatGraph({
   const [syncSaved, setSyncSaved] = useState(false);
 
   const handleLiveFilterUpdate = async (newSettings) => {
-    setActiveRatio(newSettings.ratio_threshold);
-    setActiveCount(newSettings.min_count);
-    setActiveCooldown(newSettings.cooldown_sec);
+    if (newSettings.ratio_threshold !== undefined) setActiveRatio(newSettings.ratio_threshold);
+    if (newSettings.min_count !== undefined) setActiveCount(newSettings.min_count);
+    if (newSettings.cooldown_sec !== undefined) setActiveCooldown(newSettings.cooldown_sec);
+    if (newSettings.audio_peak_db !== undefined) setActiveAudioDb(newSettings.audio_peak_db);
 
     if (onDetectorUpdate) {
       onDetectorUpdate(newSettings);
@@ -512,7 +515,7 @@ export default function LiveChatGraph({
           </div>
 
           {/* Fine-Tuning Sliders */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-xs font-mono">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1 text-xs font-mono">
             <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-muted text-[11px]">Surge Multiplier</span>
@@ -528,6 +531,7 @@ export default function LiveChatGraph({
                   ratio_threshold: Number(e.target.value),
                   min_count: activeCount,
                   cooldown_sec: activeCooldown,
+                  audio_peak_db: activeAudioDb,
                 })}
                 className="w-full accent-brass cursor-pointer"
               />
@@ -548,6 +552,7 @@ export default function LiveChatGraph({
                   ratio_threshold: activeRatio,
                   min_count: Number(e.target.value),
                   cooldown_sec: activeCooldown,
+                  audio_peak_db: activeAudioDb,
                 })}
                 className="w-full accent-brass cursor-pointer"
               />
@@ -568,8 +573,30 @@ export default function LiveChatGraph({
                   ratio_threshold: activeRatio,
                   min_count: activeCount,
                   cooldown_sec: Number(e.target.value),
+                  audio_peak_db: activeAudioDb,
                 })}
                 className="w-full accent-brass cursor-pointer"
+              />
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/5 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-muted text-[11px]">Loudness Surge</span>
+                <span className="text-[#ff66b2] font-bold">+{activeAudioDb} dB</span>
+              </div>
+              <input
+                type="range"
+                min="8"
+                max="28"
+                step="1"
+                value={activeAudioDb}
+                onChange={(e) => handleLiveFilterUpdate({
+                  ratio_threshold: activeRatio,
+                  min_count: activeCount,
+                  cooldown_sec: activeCooldown,
+                  audio_peak_db: Number(e.target.value),
+                })}
+                className="w-full accent-[#e31084] cursor-pointer"
               />
             </div>
           </div>

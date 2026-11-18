@@ -1375,22 +1375,69 @@ def auto_caption_clip(clip_path, transcript, clip_start, clip_end, split_ranges=
         if split_ranges is None:
             import layout_ranges as _layouts
             split_ranges = _layouts.split_ranges(_layouts.read(clip_path))
+
+        # Pre-render subtitle placement & size overrides from Clip Studio
+        sub_pos = os.environ.get("SUBTITLE_POSITION", "auto").strip().lower()
+        sub_y_raw = os.environ.get("SUBTITLE_Y", "").strip()
+        sub_y = None
+        if sub_y_raw:
+            try:
+                sub_y = max(0.06, min(0.95, float(sub_y_raw)))
+            except ValueError:
+                sub_y = None
+        try:
+            sub_scale = max(0.5, min(1.8, float(os.environ.get("SUBTITLE_SCALE", "1.0"))))
+        except ValueError:
+            sub_scale = 1.0
+
+        scaled_fontsize = max(14, min(140, int(round(style["font_size"] * sub_scale))))
+        scaled_max_chars = (
+            _subs.line_budget(style["font_name"], scaled_fontsize)
+            if abs(sub_scale - 1.0) > 0.01
+            else style["max_chars"]
+        )
+
+        if sub_pos == "custom" and sub_y is not None:
+            eff_alignment = style["alignment"]
+            eff_y_ratio = sub_y
+            eff_split_ranges = []
+        elif sub_pos in ("top", "middle", "bottom"):
+            eff_alignment = sub_pos
+            eff_y_ratio = None
+            eff_split_ranges = []
+        elif sub_y is not None and sub_pos != "auto":
+            eff_alignment = style["alignment"]
+            eff_y_ratio = sub_y
+            eff_split_ranges = []
+        else:
+            eff_alignment = style["alignment"]
+            eff_y_ratio = None
+            eff_split_ranges = split_ranges
+
+        sub_color = os.environ.get("SUBTITLE_COLOR", "").strip()
+        if not re.match(r'^#[0-9A-Fa-f]{6}$', sub_color):
+            sub_color = style["font_color"]
+        sub_hi_color = os.environ.get("SUBTITLE_HIGHLIGHT_COLOR", "").strip()
+        if not re.match(r'^#[0-9A-Fa-f]{6}$', sub_hi_color):
+            sub_hi_color = style["highlight_color"]
+
         if not _subs.generate_ass(
                 transcript, clip_start, clip_end, ass_path,
-                split_ranges=split_ranges,
-                max_chars=style["max_chars"], max_duration=style["max_duration"],
-                alignment=style["alignment"], fontsize=style["font_size"],
-                font_name=style["font_name"], font_color=style["font_color"],
+                split_ranges=eff_split_ranges,
+                max_chars=scaled_max_chars, max_duration=style["max_duration"],
+                alignment=eff_alignment, fontsize=scaled_fontsize,
+                font_name=style["font_name"], font_color=sub_color,
                 border_color=style["border_color"], border_width=style["border_width"],
-                highlight_color=style["highlight_color"], effect=style["effect"],
-                base_opacity=style["base_opacity"], uppercase=style["uppercase"]):
+                highlight_color=sub_hi_color, effect=style["effect"],
+                base_opacity=style["base_opacity"], uppercase=style["uppercase"],
+                y_ratio=eff_y_ratio):
             print("   ℹ️ No words in range — clip ships without captions.")
             return None
 
         if plan_only:
             vf = _subs.subtitles_filter(
-                ass_path, alignment=style["alignment"], fontsize=style["font_size"],
-                font_name=style["font_name"], font_color=style["font_color"],
+                ass_path, alignment=eff_alignment, fontsize=scaled_fontsize,
+                font_name=style["font_name"], font_color=sub_color,
                 border_color=style["border_color"], border_width=style["border_width"])
             return vf, generation_id
         marked = None
@@ -1401,8 +1448,8 @@ def auto_caption_clip(clip_path, transcript, clip_start, clip_end, split_ranges=
         try:
             _subs.burn_subtitles(
                 clip_path, ass_path, out_path,
-                alignment=style["alignment"], fontsize=style["font_size"],
-                font_name=style["font_name"], font_color=style["font_color"],
+                alignment=eff_alignment, fontsize=scaled_fontsize,
+                font_name=style["font_name"], font_color=sub_color,
                 border_color=style["border_color"], border_width=style["border_width"],
                 mark=marked)
         except Exception:
@@ -1455,12 +1502,42 @@ def auto_hook_clip(clip_path, clip, captions=None, mark=False):
         output_dir = os.path.dirname(clip_path)
         out_path = os.path.join(
             output_dir, f"hooked_{int(time.time())}_{os.path.basename(clip_path)}")
+
+        # Pre-render hook placement & size overrides from Clip Studio
+        hook_pos = os.environ.get("AUTO_HOOK_POSITION", "auto").strip().lower()
+        if hook_pos not in ("auto", "very_top", "top", "center", "bottom", "custom"):
+            hook_pos = "auto"
+        hook_y_raw = os.environ.get("AUTO_HOOK_Y", "").strip()
+        hook_y = None
+        if hook_y_raw and hook_pos == "custom":
+            try:
+                hook_y = max(0.02, min(0.92, float(hook_y_raw)))
+            except ValueError:
+                hook_y = None
+        try:
+            hook_scale = max(0.5, min(1.8, float(os.environ.get("AUTO_HOOK_SCALE", "1.0"))))
+        except ValueError:
+            hook_scale = 1.0
+
         # "auto": off the speaker's face and off the captions (hook_placement);
         # the layout ranges say where the captions sit (the seam on SPLIT).
-        config = {"text": text, "style": style, "position": "auto",
-                  "duration_seconds": seconds}
-        place = {"position": "auto", "layout_ranges": clip.get('layout_ranges'),
-                 "has_captions": bool(captions), "single_line": True}
+        config = {
+            "text": text,
+            "style": style,
+            "position": hook_pos,
+            "font_scale": hook_scale,
+            "duration_seconds": seconds,
+        }
+        if hook_y is not None:
+            config["y"] = round(hook_y, 3)
+        place = {
+            "position": "top" if (hook_pos == "custom" and hook_y is None) else hook_pos,
+            "y_ratio": hook_y,
+            "font_scale": hook_scale,
+            "layout_ranges": clip.get('layout_ranges'),
+            "has_captions": bool(captions),
+            "single_line": True,
+        }
 
         def note(result):
             if isinstance(result, dict) and result.get("y") is not None:
@@ -1687,26 +1764,135 @@ FRAME_ASSETS = {
         "alt_file": os.path.join("assets", "Kick.com Watermark & Logo.png"),
         "name": "Kick",
         "color": "#53FC18",
+        "domain": "kick.com/",
+        # Normalized anchor box immediately after "KICK.COM/" in the PNG
+        "text_box": (0.525, 0.580, 0.816, 0.975),
     },
     "youtube": {
         "file": os.path.join("dashboard", "public", "frames", "youtube.png"),
         "alt_file": os.path.join("assets", "YoutubeFrame.png"),
         "name": "YouTube",
         "color": "#FF0000",
+        "domain": "youtube.com/",
+        "text_box": (0.677, 0.590, 0.829, 0.975),
     },
     "twitch": {
         "file": os.path.join("dashboard", "public", "frames", "twitch.png"),
         "alt_file": os.path.join("assets", "TwitchFrame.png"),
         "name": "Twitch",
         "color": "#9146FF",
+        "domain": "twitch.tv/",
+        "text_box": (0.539, 0.574, 0.829, 0.975),
     },
     "instagram": {
         "file": os.path.join("dashboard", "public", "frames", "instagram.png"),
         "alt_file": os.path.join("assets", "InstagramFrame.png"),
         "name": "Instagram",
         "color": "#E1306C",
+        "domain": "instagram.com/",
+        "text_box": (0.772, 0.602, 0.835, 0.975),
     },
 }
+
+
+def clean_frame_handle(text):
+    """Normalize optional streamer handle/name placed beside kick.com/ etc."""
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    # Strip protocol and known domain prefixes if the user pasted a full URL
+    raw = re.sub(r'^https?://(www\.)?', '', raw, flags=re.IGNORECASE)
+    raw = re.sub(r'^(kick\.com|youtube\.com|youtu\.be|twitch\.tv|instagram\.com)/+', '', raw, flags=re.IGNORECASE)
+    raw = raw.lstrip('/').strip()
+    # Keep single line and sensible max length
+    raw = re.sub(r'\s+', ' ', raw)[:40].strip()
+    return raw.upper()
+
+
+def _load_brand_frame_font(pixel_size):
+    """Load bundled condensed bold font matching the frame PNG link typography."""
+    from PIL import ImageFont
+    root = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(root, "fonts", "Anton-Regular.ttf"),
+        os.path.join(root, "fonts", "Montserrat-ExtraBold.ttf"),
+        os.path.join(root, "dashboard", "public", "fonts", "Anton-Regular.ttf"),
+    ]
+    size = max(10, int(round(pixel_size)))
+    for fp in candidates:
+        if os.path.exists(fp):
+            try:
+                return ImageFont.truetype(fp, size)
+            except Exception:
+                continue
+    return ImageFont.load_default()
+
+
+def render_brand_frame_image(frame_type="kick", frame_text="", output_path=None):
+    """Return ``(png_path, is_temp)`` for a brand frame with optional handle text.
+
+    When ``frame_text`` is blank, returns the static frame PNG untouched
+    (``is_temp=False``). When provided, composites the handle in crisp white
+    uppercase directly after ``KICK.COM/`` / ``YOUTUBE.COM/`` / ``TWITCH.TV/`` /
+    ``INSTAGRAM.COM/`` aligned to the existing link text's height and baseline.
+    """
+    ft = (frame_type or "kick").lower().strip()
+    if ft == "yt":
+        ft = "youtube"
+    asset = get_frame_asset_path(ft)
+    if not asset or not os.path.exists(asset):
+        return None, False
+
+    label = clean_frame_handle(frame_text)
+    if not label:
+        return asset, False
+
+    from PIL import Image, ImageDraw
+    img = Image.open(asset).convert("RGBA")
+    w, h = img.size
+    info = FRAME_ASSETS.get(ft) or FRAME_ASSETS["kick"]
+    x_start_r, y_top_r, y_bot_r, x_max_r = info["text_box"]
+
+    target_cap_h = max(10.0, (y_bot_r - y_top_r) * h)
+    max_text_w = max(20.0, (x_max_r - x_start_r) * w)
+    target_cy = ((y_top_r + y_bot_r) * 0.5) * h
+
+    draw = ImageDraw.Draw(img)
+    # Start with font size scaled so capital glyph height matches target_cap_h
+    font_size = max(12, int(round(target_cap_h * 1.32)))
+    font = _load_brand_frame_font(font_size)
+    bbox = draw.textbbox((0, 0), label, font=font)
+    tw = max(1, bbox[2] - bbox[0])
+    th = max(1, bbox[3] - bbox[1])
+
+    # Fine-tune height first, then shrink if width exceeds available bar space
+    if abs(th - target_cap_h) > 2:
+        font_size = max(10, int(round(font_size * (target_cap_h / th))))
+        font = _load_brand_frame_font(font_size)
+        bbox = draw.textbbox((0, 0), label, font=font)
+        tw = max(1, bbox[2] - bbox[0])
+        th = max(1, bbox[3] - bbox[1])
+
+    if tw > max_text_w:
+        font_size = max(10, int(round(font_size * (max_text_w / tw))))
+        font = _load_brand_frame_font(font_size)
+        bbox = draw.textbbox((0, 0), label, font=font)
+        tw = max(1, bbox[2] - bbox[0])
+        th = max(1, bbox[3] - bbox[1])
+
+    x_pos = int(round(x_start_r * w)) - bbox[0]
+    y_pos = int(round(target_cy - (bbox[1] + bbox[3]) * 0.5))
+    draw.text((x_pos, y_pos), label, font=font, fill=(255, 255, 255, 255))
+
+    if output_path:
+        img.save(output_path, "PNG")
+        return output_path, False
+
+    import tempfile
+    fd, tmp_png = tempfile.mkstemp(prefix=f"brandframe_{ft}_", suffix=".png")
+    os.close(fd)
+    img.save(tmp_png, "PNG")
+    return tmp_png, True
 
 
 def get_frame_asset_path(frame_type):
@@ -1749,45 +1935,52 @@ def brand_frame_filter(vw, vh, frame_type="kick", scale=1.0, x_pct=0.0, y_pct=No
     )
 
 
-def apply_brand_frame(video_path, output_path=None, frame_type="kick", scale=1.0, x_pct=0.0, y_pct=None):
+def apply_brand_frame(video_path, output_path=None, frame_type="kick", scale=1.0, x_pct=0.0, y_pct=None, frame_text=""):
     """Burn any of the 4 brand frames (Kick, YouTube, Twitch, Instagram) into a finished clip."""
-    asset = get_frame_asset_path(frame_type)
+    asset, is_temp_asset = render_brand_frame_image(frame_type=frame_type, frame_text=frame_text)
     if not asset or not os.path.exists(asset):
         print(f"   ⚠️ Frame asset missing for {frame_type} ({asset}); clip kept unchanged.")
         return False
 
     try:
-        probe = subprocess.check_output(
-            ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", video_path],
-            stderr=subprocess.STDOUT, timeout=60,
-        ).decode().strip().split("x")
-        vw, vh = int(probe[0]), int(probe[1])
-    except Exception as e:
-        print(f"   ⚠️ Could not probe clip for brand frame ({e}); clip kept unchanged.")
-        return False
+        try:
+            probe = subprocess.check_output(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", video_path],
+                stderr=subprocess.STDOUT, timeout=60,
+            ).decode().strip().split("x")
+            vw, vh = int(probe[0]), int(probe[1])
+        except Exception as e:
+            print(f"   ⚠️ Could not probe clip for brand frame ({e}); clip kept unchanged.")
+            return False
 
-    filt = brand_frame_filter(vw, vh, frame_type=frame_type, scale=scale, x_pct=x_pct, y_pct=y_pct)
-    tag = (frame_type or "frame").lower()
-    tmp_path = (output_path or video_path) + f".{tag}.mp4"
-    cmd = ["ffmpeg", "-y", "-i", video_path, "-i", asset,
-           "-filter_complex", filt,
-           *video_encode_args(QUALITY), "-c:a", "copy", *METADATA_SCRUB,
-           "-movflags", "+faststart", tmp_path]
-    result = gpu_decode.run(
-        lambda on_gpu: gpu_decode.on_card(cmd, video_path) if on_gpu else cmd,
-        lambda c: subprocess.run(c, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                                 timeout=1800),
-        ok=lambda r: r.returncode == 0 and os.path.exists(tmp_path),
-        path=video_path)
-    if result.returncode == 0 and os.path.exists(tmp_path):
-        os.replace(tmp_path, output_path or video_path)
-        return True
-    err = (result.stderr or b"").decode(errors="ignore")[-300:]
-    print(f"   ⚠️ Brand frame ({frame_type}) pass failed: {err}")
-    if os.path.exists(tmp_path):
-        os.remove(tmp_path)
-    return False
+        filt = brand_frame_filter(vw, vh, frame_type=frame_type, scale=scale, x_pct=x_pct, y_pct=y_pct)
+        tag = (frame_type or "frame").lower()
+        tmp_path = (output_path or video_path) + f".{tag}.mp4"
+        cmd = ["ffmpeg", "-y", "-i", video_path, "-i", asset,
+               "-filter_complex", filt,
+               *video_encode_args(QUALITY), "-c:a", "copy", *METADATA_SCRUB,
+               "-movflags", "+faststart", tmp_path]
+        result = gpu_decode.run(
+            lambda on_gpu: gpu_decode.on_card(cmd, video_path) if on_gpu else cmd,
+            lambda c: subprocess.run(c, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                     timeout=1800),
+            ok=lambda r: r.returncode == 0 and os.path.exists(tmp_path),
+            path=video_path)
+        if result.returncode == 0 and os.path.exists(tmp_path):
+            os.replace(tmp_path, output_path or video_path)
+            return True
+        err = (result.stderr or b"").decode(errors="ignore")[-300:]
+        print(f"   ⚠️ Brand frame ({frame_type}) pass failed: {err}")
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        return False
+    finally:
+        if is_temp_asset and asset and os.path.exists(asset):
+            try:
+                os.remove(asset)
+            except OSError:
+                pass
 
 
 def apply_kick_frame(video_path, output_path=None):
@@ -3098,18 +3291,46 @@ if __name__ == '__main__':
             except NoAudioError as e:
                 print(f"🔇 {e} — switching to visual analysis.")
 
+        keep_full_clip = os.environ.get("KEEP_FULL_CLIP", "").strip().lower() in ("1", "true", "yes")
+
         # Music-only or wordless footage transcribes to a handful of words.
         # Clip it by what is on screen instead, like a video with no audio.
-        if transcript is not None and speech_is_sparse(transcript, duration):
+        # Never discard the transcript in keep_full_clip mode: short reaction
+        # clips may have only a few words that still need Whisper subtitles.
+        if transcript is not None and not keep_full_clip and speech_is_sparse(transcript, duration):
             n_words = sum(len((sg.get("text") or "").split()) for sg in transcript["segments"])
             print(f"🔇 Only {n_words} word(s) of speech in {duration:.0f}s — "
                   f"switching to visual analysis.")
             transcript = None
 
-        # 4. Clip Selection (Manual BYO-agent, Gemini analysis, or vision for silent videos)
+        # 4. Clip Selection (Keep Full Clip, Manual BYO-agent, Gemini analysis, or vision for silent videos)
         is_manual_mode = os.environ.get("PROCESSING_MODE", "").strip().lower() in ("manual", "free", "byo", "byo-agent")
         early_clips = (early_state or {}).get("clips") if early_state else None
-        if (transcript is not None and early_clips
+        if keep_full_clip:
+            print(f"🎬 [Keep Full Clip] Skipping AI cut detection — preserving entire {duration:.1f}s clip for transcription & subtitles.")
+            from manual_prompt_builder import generate_fallback_metadata_from_transcript
+            ctx_streamer = os.environ.get("CONTEXT_STREAMER") or getattr(args, "streamer", None)
+            ctx_topic = os.environ.get("CONTEXT_TOPIC") or getattr(args, "topic", None)
+            fb = generate_fallback_metadata_from_transcript(
+                0.0,
+                duration,
+                (transcript or {}).get("segments", []),
+                topic=ctx_topic,
+                streamer=ctx_streamer,
+            )
+            clips_data = {
+                "shorts": [{
+                    "start": 0.0,
+                    "end": round(float(duration), 3),
+                    "predicted_score": 100,
+                    "video_title_for_youtube_short": fb["video_title_for_youtube_short"],
+                    "viral_hook_text": fb["viral_hook_text"],
+                    "video_description_for_tiktok": fb["video_description_for_tiktok"],
+                    "video_description_for_instagram": fb["video_description_for_instagram"],
+                    "why": "Full uploaded clip kept uncut (Whisper transcription & subtitles only).",
+                }]
+            }
+        elif (transcript is not None and early_clips
                 and transcript is early_state["transcript"]
                 and not is_manual_mode):
             print("♻️ Using the clips Gemini picked while the video downloaded.")
@@ -3271,6 +3492,43 @@ if __name__ == '__main__':
                                 split_ranges=split_ranges,
                                 mark=os.environ.get("WATERMARK") == "1")
                         served = captioned or deliver_path
+                        bf_type = os.environ.get("BRAND_FRAME_TYPE", "").strip().lower()
+                        if bf_type == "yt":
+                            bf_type = "youtube"
+                        if bf_type in ("kick", "youtube", "twitch", "instagram"):
+                            bf_text = os.environ.get("BRAND_FRAME_TEXT", "").strip()
+                            try:
+                                bf_scale = max(0.3, min(1.8, float(os.environ.get("BRAND_FRAME_SCALE", "1.0"))))
+                            except ValueError:
+                                bf_scale = 1.0
+                            bf_y_raw = os.environ.get("BRAND_FRAME_Y", "").strip()
+                            bf_y = None
+                            if bf_y_raw:
+                                try:
+                                    bf_y = max(0.03, min(0.98, float(bf_y_raw)))
+                                except ValueError:
+                                    bf_y = None
+                            clean_before_frame = os.path.basename(served)
+                            framed_name = f"{bf_type}_{clean_before_frame}"
+                            framed_path = os.path.join(output_dir, framed_name)
+                            if apply_brand_frame(
+                                served,
+                                output_path=framed_path,
+                                frame_type=bf_type,
+                                scale=bf_scale,
+                                x_pct=0.0,
+                                y_pct=bf_y,
+                                frame_text=bf_text,
+                            ):
+                                clip['clean_file'] = clean_before_frame
+                                clip['frame_type'] = bf_type
+                                clip['frame_text'] = bf_text
+                                clip['frame_scale'] = bf_scale
+                                clip['frame_x_pct'] = 0.0
+                                clip['frame_y_pct'] = bf_y
+                                clip['kick_framed'] = (bf_type == "kick")
+                                served = framed_path
+                                print(f"   🖼️ Brand frame applied ({bf_type}, handle='{bf_text or '-'}', scale={bf_scale:g}, y={bf_y})")
                         if os.environ.get("WATERMARK") == "1":
                             served = mark_delivery(served)
                         print(f"   ✅ Clip {i+1} ready: {clip_final_path}")

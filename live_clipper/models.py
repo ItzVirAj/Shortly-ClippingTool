@@ -27,7 +27,7 @@ class LiveConfig:
     detector: DetectorConfig = field(default_factory=DetectorConfig)
     credit_text: Optional[str] = None
     audio_peaks_enabled: bool = True
-    audio_peak_db: float = 6.0
+    audio_peak_db: float = 14.0
     heatmap_enabled: bool = True
     mirror_video: bool = False
     webcam_mode: str = "auto"
@@ -102,7 +102,7 @@ class LiveConfig:
             detector=detector,
             credit_text=data.get("credit_text"),
             audio_peaks_enabled=bool(data.get("audio_peaks_enabled", True)),
-            audio_peak_db=float(data.get("audio_peak_db", 6.0)),
+            audio_peak_db=float(data.get("audio_peak_db", 14.0)),
             heatmap_enabled=bool(data.get("heatmap_enabled", True)),
             mirror_video=bool(data.get("mirror_video", False)),
             webcam_mode=str(data.get("webcam_mode") or "auto"),

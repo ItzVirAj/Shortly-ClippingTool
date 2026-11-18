@@ -18,6 +18,12 @@ import numpy as np
 
 logger = logging.getLogger("live_clipper.audio_energy")
 
+# Default relative surge above active speaking baseline (+14 dB ignores normal talking)
+# and absolute loudness floor (-16 dBFS raw 1s RMS filters out quiet-to-normal speech).
+DEFAULT_AUDIO_PEAK_DB = 14.0
+DEFAULT_MIN_PEAK_DB = -16.0
+ACTIVE_AUDIO_FLOOR_DB = -42.0
+
 
 @dataclass
 class AudioPeak:
@@ -91,15 +97,24 @@ def compute_rms_series(
 def detect_audio_peaks_from_samples(
     audio: np.ndarray,
     sr: int = 16000,
-    threshold_db: float = 6.0,
-    gap_sec: float = 35.0,
+    threshold_db: float = DEFAULT_AUDIO_PEAK_DB,
+    gap_sec: float = 45.0,
     time_offset: float = 0.0,
     top_n: int = 20,
+    min_db_level: float = DEFAULT_MIN_PEAK_DB,
 ) -> List[AudioPeak]:
-    """Detect loudest seconds (+threshold_db above median ambient floor)."""
+    """Detect genuinely loud surges (+threshold_db above baseline AND >= min_db_level dBFS).
+
+    The absolute ``min_db_level`` check on the 1-second RMS prevents normal speaking
+    after quiet pauses from being misclassified as a scream or hype reaction.
+    """
     db, smooth, floor = compute_rms_series(audio, sr=sr)
     if len(smooth) < 3:
         return []
+
+    # Guard against near-silence dragging the floor down to -80 dB
+    active = smooth[smooth > ACTIVE_AUDIO_FLOOR_DB]
+    effective_floor = float(np.median(active)) if len(active) >= 3 else max(floor, ACTIVE_AUDIO_FLOOR_DB)
 
     picked: List[AudioPeak] = []
     # Sort indices by loudness descending
@@ -107,9 +122,13 @@ def detect_audio_peaks_from_samples(
 
     for i in sort_indices:
         level = float(smooth[i])
-        diff = level - floor
+        raw_level = float(db[i])
+        diff = level - effective_floor
         if diff < threshold_db:
             break
+        # Reject normal speaking / quiet-to-talk transitions that aren't genuinely loud
+        if raw_level < min_db_level:
+            continue
 
         cand_t = round(time_offset + float(i), 2)
         if all(abs(cand_t - p.t) > gap_sec for p in picked):
@@ -117,8 +136,8 @@ def detect_audio_peaks_from_samples(
                 AudioPeak(
                     t=cand_t,
                     db_above_floor=round(diff, 1),
-                    db_level=round(level, 1),
-                    floor_db=round(floor, 1),
+                    db_level=round(raw_level, 1),
+                    floor_db=round(effective_floor, 1),
                 )
             )
         if len(picked) >= top_n:
@@ -133,20 +152,22 @@ class LiveAudioEnergyAnalyzer:
     def __init__(
         self,
         buffer_dir: Path,
-        threshold_db: float = 6.0,
-        gap_sec: float = 35.0,
+        threshold_db: float = DEFAULT_AUDIO_PEAK_DB,
+        gap_sec: float = 45.0,
         ffmpeg_bin: Optional[str] = None,
+        min_db_level: float = DEFAULT_MIN_PEAK_DB,
     ) -> None:
         self.buffer_dir = Path(buffer_dir)
         self.threshold_db = float(threshold_db)
         self.gap_sec = float(gap_sec)
         self.ffmpeg_bin = ffmpeg_bin
+        self.min_db_level = float(min_db_level)
 
         self.processed_segments: Set[str] = set()
         self.energy_points: List[Dict] = []  # [{"t": float, "db": float, "smooth": float, "peak": bool}]
         self.peaks: List[AudioPeak] = []
         self._history_samples: List[np.ndarray] = []
-        self._current_floor: float = -45.0
+        self._current_floor: float = -35.0
 
     def process_new_segments(self, segments: List[Dict]) -> List[AudioPeak]:
         """Process any unanalyzed segments and return newly detected peaks."""
@@ -168,24 +189,50 @@ class LiveAudioEnergyAnalyzer:
                 continue
 
             self.processed_segments.add(filename)
-            # Compare sustained changes across segment boundaries as well as local peaks.
-            seg_peaks = detect_audio_peaks_from_samples(
-                audio=audio,
-                threshold_db=self.threshold_db,
-                gap_sec=self.gap_sec,
-                time_offset=start_t,
-            )
 
-            # Record 1s energy points for frontend graph
+            # Compute 1s RMS & 3s smoothed profile once per segment
             db, smooth, floor = compute_rms_series(audio)
-            previous = [p["smooth"] for p in self.energy_points if start_t - 180 <= p["t"] < start_t]
-            if len(previous) >= 15 and len(smooth):
-                baseline = float(np.median(previous))
-                peak_index = int(np.argmax(smooth))
-                level = float(smooth[peak_index])
-                if level >= -45 and level - baseline >= self.threshold_db:
-                    seg_peaks.insert(0, AudioPeak(start_t + peak_index, round(level - baseline, 1), level, baseline))
-            self._current_floor = floor
+            seg_peaks: List[AudioPeak] = []
+
+            if len(smooth) >= 3:
+                # Build a rolling 3-minute speaking baseline (ignoring dead silence below -42 dB
+                # so quiet pauses cannot make normal talking look like a +15 dB scream).
+                previous = [p["smooth"] for p in self.energy_points if start_t - 180 <= p["t"] < start_t]
+                prev_active = [v for v in previous if v > ACTIVE_AUDIO_FLOOR_DB]
+                if len(prev_active) >= 10:
+                    # 60th percentile of active audio tracks normal talking level accurately
+                    baseline = float(np.percentile(prev_active, 60))
+                elif len(previous) >= 15:
+                    baseline = max(float(np.median(previous)), ACTIVE_AUDIO_FLOOR_DB)
+                else:
+                    seg_active = smooth[smooth > ACTIVE_AUDIO_FLOOR_DB]
+                    baseline = float(np.median(seg_active)) if len(seg_active) >= 3 else max(floor, ACTIVE_AUDIO_FLOOR_DB)
+
+                # Inspect peaks in this segment against the rolling baseline + absolute dBFS gate
+                sort_indices = np.argsort(-db)
+                for idx in sort_indices:
+                    raw_level = float(db[idx])
+                    smooth_level = float(smooth[idx])
+                    if raw_level < self.min_db_level:
+                        break
+                    # Use the higher of smooth/raw delta while requiring sustained or genuinely sharp loudness
+                    diff = max(smooth_level - baseline, (raw_level - baseline) * 0.85)
+                    if diff < self.threshold_db:
+                        continue
+                    cand_t = round(start_t + float(idx), 2)
+                    if all(abs(cand_t - p.t) > self.gap_sec for p in seg_peaks):
+                        seg_peaks.append(
+                            AudioPeak(
+                                t=cand_t,
+                                db_above_floor=round(diff, 1),
+                                db_level=round(raw_level, 1),
+                                floor_db=round(baseline, 1),
+                            )
+                        )
+                self._current_floor = baseline
+            else:
+                self._current_floor = floor
+
             for i in range(len(smooth)):
                 t_sec = round(start_t + float(i), 1)
                 is_pk = any(abs(t_sec - p.t) < 1.0 for p in seg_peaks)
@@ -197,7 +244,7 @@ class LiveAudioEnergyAnalyzer:
                 })
 
             # Append unique peaks respecting gap
-            for sp in seg_peaks:
+            for sp in sorted(seg_peaks, key=lambda p: p.t):
                 if all(abs(sp.t - existing.t) > self.gap_sec for existing in self.peaks):
                     self.peaks.append(sp)
                     new_peaks.append(sp)

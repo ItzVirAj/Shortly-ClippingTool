@@ -595,9 +595,39 @@ def _auto_place(video_path, text, target_box_width, hook_filename, font_scale, s
             "y": round(y, 3), "scale": rel}
 
 
+def compute_hook_overlay_y(video_height, box_h, position="top", y_ratio=None, placed_y_px=None):
+    """Compute clamped vertical pixel coordinate for the hook PNG overlay.
+
+    Supports ``placed_y_px`` (from auto face/caption avoidance), an explicit
+    normalized ``y_ratio`` in ``[0.0, 1.0]`` (vertical center of the hook box),
+    or named presets: ``very_top`` (~4% from top), ``top`` (~20%), ``center``,
+    and ``bottom`` (~70%).
+    """
+    vh = max(1, int(video_height))
+    bh = max(0, int(box_h))
+    max_y = max(0, vh - bh)
+    if placed_y_px is not None:
+        return max(0, min(max_y, int(placed_y_px)))
+    if y_ratio is not None:
+        try:
+            yr = max(0.0, min(1.0, float(y_ratio)))
+            return max(0, min(max_y, int(round(vh * yr - bh / 2.0))))
+        except (TypeError, ValueError):
+            pass
+    pos = str(position or "top").strip().lower()
+    if pos == "very_top":
+        return max(0, min(max_y, max(12, int(round(vh * 0.04)))))
+    if pos == "center":
+        return max(0, (vh - bh) // 2)
+    if pos == "bottom":
+        return max(0, min(max_y, int(vh * 0.70)))
+    # Default ("top" or fallback): top 20% mark
+    return max(0, min(max_y, int(vh * 0.20)))
+
+
 def add_hook_to_video(video_path, text, output_path, position="top", font_scale=1.0, duration=None, style="pill",
                       also=None, font=None, layout_ranges=None, has_captions=True,
-                      mark=None, single_line=False):
+                      mark=None, single_line=False, y_ratio=None):
     """
     Overlays text hook onto video.
     position: 'top', 'center', 'bottom', or 'auto' (hook_placement: off the
@@ -653,7 +683,7 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
         img_path, box_w, box_h = create_hook_image(text, target_box_width, hook_filename, font_scale=font_scale, style=style,
                                                        font=font, single_line=single_line)
         placed = None
-        if position == "auto":
+        if y_ratio is None and position == "auto":
             placed = _auto_place(video_path, text, target_box_width, hook_filename, font_scale,
                                  style, font, video_width, video_height, duration,
                                  layout_ranges, has_captions, (box_w, box_h),
@@ -663,17 +693,13 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
 
         # 3. Calculate Overlay Position
         overlay_x = (video_width - box_w) // 2
-        
-        if placed:
-            overlay_y = placed["y_px"]
-        elif position == "center":
-            overlay_y = (video_height - box_h) // 2
-        elif position == "bottom":
-             # Bottom 20% mark (approx)
-             overlay_y = int(video_height * 0.70)
-        else:
-             # Top 20% mark
-             overlay_y = int(video_height * 0.20)
+        overlay_y = compute_hook_overlay_y(
+            video_height,
+            box_h,
+            position=position,
+            y_ratio=y_ratio,
+            placed_y_px=placed["y_px"] if placed else None,
+        )
         
         # 4. FFmpeg Command
         print(f"🎬 Overlaying hook: '{text}' at {overlay_x},{overlay_y}")

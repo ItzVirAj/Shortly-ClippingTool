@@ -17,7 +17,7 @@ import {
 import { track } from '../lib/analytics';
 import { getApiUrl } from '../config';
 import SourceCost from './SourceCost';
-import WebcamBoxPicker from './WebcamBoxPicker';
+import StudioParametersModal from './StudioParametersModal';
 
 const SUPPORTED_PLATFORMS = [
     'YouTube', 'Vimeo', 'TikTok', 'X / Twitter', 'Twitch', 'Kick',
@@ -85,7 +85,10 @@ export default function MediaInput({
     const [url, setUrl] = useState('');
     const [file, setFile] = useState(null);
     const [fileSeconds, setFileSeconds] = useState(null);
-    const fileTooShort = fileSeconds != null && fileSeconds < MIN_SOURCE_SECONDS;
+    const [keepFullClip, setKeepFullClip] = useState(() => {
+        try { return localStorage.getItem('os_keep_full_clip') === '1'; } catch { return false; }
+    });
+    const fileTooShort = !keepFullClip && fileSeconds != null && fileSeconds < MIN_SOURCE_SECONDS;
     const [acknowledged, setAcknowledged] = useState(false);
     const [range, setRange] = useState(null);
     const [outputFormat, setOutputFormat] = useState('vertical'); // vertical | horizontal | square
@@ -101,6 +104,63 @@ export default function MediaInput({
     });
     const [autoHookStyle, setAutoHookStyle] = useState(() => {
         try { return localStorage.getItem('os_auto_hook_style_v2') || 'pill'; } catch { return 'pill'; }
+    });
+    const [hookPosition, setHookPosition] = useState(() => {
+        try { return localStorage.getItem('os_hook_position') || 'auto'; } catch { return 'auto'; }
+    });
+    const [hookY, setHookY] = useState(() => {
+        try {
+            const v = parseFloat(localStorage.getItem('os_hook_y'));
+            return Number.isFinite(v) ? v : 0.06;
+        } catch { return 0.06; }
+    });
+    const [hookScale, setHookScale] = useState(() => {
+        try {
+            const v = parseFloat(localStorage.getItem('os_hook_scale'));
+            return Number.isFinite(v) ? v : 1.0;
+        } catch { return 1.0; }
+    });
+    const [subtitlePosition, setSubtitlePosition] = useState(() => {
+        try { return localStorage.getItem('os_subtitle_position') || 'auto'; } catch { return 'auto'; }
+    });
+    const [subtitleY, setSubtitleY] = useState(() => {
+        try {
+            const v = parseFloat(localStorage.getItem('os_subtitle_y'));
+            return Number.isFinite(v) ? v : 0.82;
+        } catch { return 0.82; }
+    });
+    const [subtitleScale, setSubtitleScale] = useState(() => {
+        try {
+            const v = parseFloat(localStorage.getItem('os_subtitle_scale'));
+            return Number.isFinite(v) ? v : 1.0;
+        } catch { return 1.0; }
+    });
+    const [subtitleColor, setSubtitleColor] = useState(() => {
+        try { return localStorage.getItem('os_subtitle_color') || '#FFFFFF'; } catch { return '#FFFFFF'; }
+    });
+    const [subtitleHighlightColor, setSubtitleHighlightColor] = useState(() => {
+        try { return localStorage.getItem('os_subtitle_highlight_color') || '#E31084'; } catch { return '#E31084'; }
+    });
+    const [brandFrameEnabled, setBrandFrameEnabled] = useState(() => {
+        try { return localStorage.getItem('os_brand_frame_enabled') === '1'; } catch { return false; }
+    });
+    const [brandFrameType, setBrandFrameType] = useState(() => {
+        try { return localStorage.getItem('os_brand_frame_type') || 'kick'; } catch { return 'kick'; }
+    });
+    const [brandFrameText, setBrandFrameText] = useState(() => {
+        try { return localStorage.getItem('os_brand_frame_text') || ''; } catch { return ''; }
+    });
+    const [brandFrameY, setBrandFrameY] = useState(() => {
+        try {
+            const v = parseFloat(localStorage.getItem('os_brand_frame_y'));
+            return Number.isFinite(v) ? v : 0.95;
+        } catch { return 0.95; }
+    });
+    const [brandFrameScale, setBrandFrameScale] = useState(() => {
+        try {
+            const v = parseFloat(localStorage.getItem('os_brand_frame_scale'));
+            return Number.isFinite(v) ? v : 1.0;
+        } catch { return 1.0; }
     });
     const [streamerName, setStreamerName] = useState(() => {
         try { return localStorage.getItem('os_streamer_name') || ''; } catch { return ''; }
@@ -133,6 +193,7 @@ export default function MediaInput({
         try { return localStorage.getItem('os_auto_push_yt_privacy') || 'public'; } catch { return 'public'; }
     });
     const [filePreviewFrame, setFilePreviewFrame] = useState(null);
+    const [showPlacementModal, setShowPlacementModal] = useState(false);
     const [layout, setLayout] = useState(() => {
         try { return localStorage.getItem('os_layout') || 'auto'; } catch { return 'auto'; }
     });
@@ -210,8 +271,22 @@ export default function MediaInput({
             clipMaxSeconds: clipMaxSeconds || null,
             autoHook,
             autoHookStyle,
+            hookPosition,
+            hookY: hookPosition === 'custom' ? hookY : null,
+            hookScale,
+            subtitlePosition,
+            subtitleY: subtitlePosition === 'custom' ? subtitleY : null,
+            subtitleScale,
+            subtitleColor,
+            subtitleHighlightColor,
+            brandFrameEnabled,
+            brandFrameType: brandFrameEnabled ? brandFrameType : null,
+            brandFrameText: brandFrameEnabled ? brandFrameText.trim() : '',
+            brandFrameY: brandFrameEnabled ? brandFrameY : null,
+            brandFrameScale: brandFrameEnabled ? brandFrameScale : null,
             streamer: streamerName.trim() || null,
             mirrorVideo,
+            keepFullClip: mode === 'file' ? Boolean(keepFullClip) : false,
             webcamMode,
             webcamBox: webcamMode === 'custom' ? webcamBox : null,
             autoPushYouTube: autoPushYt
@@ -231,8 +306,22 @@ export default function MediaInput({
             localStorage.setItem('os_processing_mode', processingMode);
             localStorage.setItem('os_auto_hook', autoHook ? '1' : '0');
             localStorage.setItem('os_auto_hook_style_v2', autoHookStyle);
+            localStorage.setItem('os_hook_position', hookPosition);
+            localStorage.setItem('os_hook_y', String(hookY));
+            localStorage.setItem('os_hook_scale', String(hookScale));
+            localStorage.setItem('os_subtitle_position', subtitlePosition);
+            localStorage.setItem('os_subtitle_y', String(subtitleY));
+            localStorage.setItem('os_subtitle_scale', String(subtitleScale));
+            localStorage.setItem('os_subtitle_color', subtitleColor);
+            localStorage.setItem('os_subtitle_highlight_color', subtitleHighlightColor);
+            localStorage.setItem('os_brand_frame_enabled', brandFrameEnabled ? '1' : '0');
+            localStorage.setItem('os_brand_frame_type', brandFrameType);
+            localStorage.setItem('os_brand_frame_text', brandFrameText);
+            localStorage.setItem('os_brand_frame_y', String(brandFrameY));
+            localStorage.setItem('os_brand_frame_scale', String(brandFrameScale));
             localStorage.setItem('os_streamer_name', streamerName);
             localStorage.setItem('os_mirror_video', mirrorVideo ? '1' : '0');
+            localStorage.setItem('os_keep_full_clip', keepFullClip ? '1' : '0');
             localStorage.setItem('os_webcam_mode', webcamMode);
             if (webcamBox) localStorage.setItem('os_webcam_box', JSON.stringify(webcamBox));
             localStorage.setItem('os_auto_push_yt', autoPushYt ? '1' : '0');
@@ -249,12 +338,18 @@ export default function MediaInput({
         }
     };
 
+    const handleSelectFile = (selectedFile) => {
+        if (!selectedFile) return;
+        setFile(selectedFile);
+        setMode('file');
+        setShowPlacementModal(true);
+    };
+
     const handleDrop = (e) => {
         e.preventDefault();
         setIsDragOver(false);
         if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-            setFile(e.dataTransfer.files[0]);
-            setMode('file');
+            handleSelectFile(e.dataTransfer.files[0]);
         }
     };
 
@@ -397,21 +492,31 @@ export default function MediaInput({
                                             </div>
                                         </div>
 
-                                        <button
-                                            type="button"
-                                            onClick={() => setFile(null)}
-                                            className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-full transition-all duration-150 cursor-pointer active:scale-[0.92]"
-                                            title="Remove file"
-                                        >
-                                            <X size={14} />
-                                        </button>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowPlacementModal(true)}
+                                                className="px-3 py-1.5 rounded-xl text-[11px] font-semibold bg-gradient-to-r from-[#e31084] to-[#f03b9f] hover:brightness-110 text-white shadow-[0_3px_14px_rgba(227,16,132,0.35)] border-t border-white/20 transition-all duration-150 cursor-pointer active:scale-[0.97]"
+                                                title="Configure Parameters, Framing, Hook, Subtitles & Social Frame"
+                                            >
+                                                Studio &amp; Overlays
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setFile(null)}
+                                                className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-full transition-all duration-150 cursor-pointer active:scale-[0.92]"
+                                                title="Remove file"
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        </div>
                                     </div>
 
                                     {fileTooShort && (
-                                        <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start gap-2.5 text-left text-xs text-amber-200">
-                                            <AlertCircle size={14} className="shrink-0 mt-0.5 text-amber-400" />
+                                        <div className="p-3 rounded-xl bg-[#e31084]/12 border border-[#e31084]/35 flex items-start gap-2.5 text-left text-xs text-pink-100">
+                                            <AlertCircle size={14} className="shrink-0 mt-0.5 text-[#f03b9f]" />
                                             <p className="leading-relaxed">
-                                                This video is {Math.round(fileSeconds)}s long. Clip generation requires at least {MIN_SOURCE_SECONDS}s of source footage to analyze and extract viral segments.
+                                                This video is {Math.round(fileSeconds)}s long. Clip generation requires at least {MIN_SOURCE_SECONDS}s of source footage to analyze and extract viral segments — or enable <span className="font-semibold text-white">Keep Full Clip</span> below.
                                             </p>
                                         </div>
                                     )}
@@ -421,7 +526,7 @@ export default function MediaInput({
                                     <input
                                         type="file"
                                         accept="video/*"
-                                        onChange={(e) => { if (e.target.files?.[0]) setFile(e.target.files[0]); }}
+                                        onChange={(e) => { if (e.target.files?.[0]) handleSelectFile(e.target.files[0]); }}
                                         className="hidden"
                                     />
                                     <div className="w-11 h-11 rounded-xl bg-white/[0.05] border border-white/[0.1] shadow-sm flex items-center justify-center text-white/70 group-hover:scale-105 group-hover:text-purple-400 group-hover:border-purple-400/40 transition-all duration-200 mx-auto mb-2.5">
@@ -431,10 +536,46 @@ export default function MediaInput({
                                         Drop video file here, or <span className="text-purple-400 hover:text-purple-300 underline underline-offset-4 decoration-purple-400/40">browse files</span>
                                     </p>
                                     <p className="text-[11px] text-white/40 mt-1 font-normal">
-                                        MP4, MOV, WebM · Up to 500MB · Minimum {MIN_SOURCE_SECONDS}s of source video
+                                        {keepFullClip
+                                            ? 'MP4, MOV, WebM · Up to 500MB · Any clip length (full clip kept uncut for subtitles)'
+                                            : `MP4, MOV, WebM · Up to 500MB · Minimum ${MIN_SOURCE_SECONDS}s of source video`}
                                     </p>
                                 </label>
                             )}
+                        </div>
+                    )}
+
+                    {/* Keep Full Clip Toggle (Uploaded Clips Only — Transcribe & Subtitle Without Cutting) */}
+                    {mode === 'file' && (
+                        <div className={`rounded-2xl border p-4 backdrop-blur-2xl transition-all flex items-center justify-between gap-4 ${
+                            keepFullClip
+                                ? 'bg-[#e31084]/10 border-[#e31084]/40 shadow-[0_6px_24px_rgba(227,16,132,0.14)]'
+                                : 'bg-white/[0.03] border-white/[0.08]'
+                        }`}>
+                            <div className="min-w-0 space-y-0.5">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs sm:text-sm font-semibold text-white">
+                                        Keep Full Clip (Don&apos;t Cut Shorts)
+                                    </span>
+                                    {keepFullClip && (
+                                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#e31084]/25 border border-[#e31084]/45 text-pink-200 uppercase">
+                                            Subtitle Only · No Cuts
+                                        </span>
+                                    )}
+                                </div>
+                                <p className="text-[11px] text-white/55 leading-snug">
+                                    Keeps the entire uploaded clip intact without AI cutting — runs Whisper transcription and burns subtitles directly (works on any clip length, zero Gemini key needed).
+                                </p>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
+                                <input
+                                    type="checkbox"
+                                    checked={keepFullClip}
+                                    onChange={(e) => setKeepFullClip(e.target.checked)}
+                                    className="sr-only peer"
+                                />
+                                <div className="w-11 h-6 bg-white/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#e31084] shadow-inner" />
+                            </label>
                         </div>
                     )}
 
@@ -567,259 +708,127 @@ export default function MediaInput({
                             </div>
                         </div>
 
-                        {/* 3. Apple Inset Grouped Parameters List */}
+                        {/* 3. Studio Parameters & Overlays Launcher (Opens Full-View Apple Modal) */}
                         <div className="pt-2 border-t border-white/[0.08] space-y-3">
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between gap-2">
                                 <p className="text-xs font-semibold text-white tracking-wide flex items-center gap-1.5">
-                                    <Sliders size={13} className="text-purple-400" /> AI Parameters
+                                    <Sliders size={13} className="text-[#f03b9f]" /> AI Parameters &amp; Overlays
                                 </p>
+                                <span className="text-[10.5px] font-mono text-white/45">
+                                    Full Studio View
+                                </span>
+                            </div>
+
+                            <div className="rounded-2xl bg-black/35 border border-white/[0.09] p-3.5 sm:p-4 space-y-3 backdrop-blur-md">
+                                <div className="flex flex-wrap gap-1.5 text-[10.5px] font-mono">
+                                    <span className="px-2.5 py-1 rounded-lg bg-white/[0.06] border border-white/[0.08] text-white/80">
+                                        Layout: {layout === 'auto' ? 'Auto' : layout.replace('_', ' ')}
+                                    </span>
+                                    <span className="px-2.5 py-1 rounded-lg bg-white/[0.06] border border-white/[0.08] text-white/80">
+                                        Hook: {autoHook ? `${hookPosition === 'custom' ? `${Math.round(hookY * 100)}%` : hookPosition.replace('_', ' ')} · ${Math.round(hookScale * 100)}%` : 'Off'}
+                                    </span>
+                                    <span className="px-2.5 py-1 rounded-lg bg-white/[0.06] border border-white/[0.08] text-white/80">
+                                        Subs: {subtitlePosition === 'custom' ? `${Math.round(subtitleY * 100)}%` : subtitlePosition} · {Math.round(subtitleScale * 100)}%
+                                    </span>
+                                    <span className={`px-2.5 py-1 rounded-lg border ${
+                                        brandFrameEnabled
+                                            ? 'bg-[#e31084]/15 border-[#e31084]/40 text-pink-200'
+                                            : 'bg-white/[0.04] border-white/[0.08] text-white/50'
+                                    }`}>
+                                        Frame: {brandFrameEnabled ? `${brandFrameType}${brandFrameText.trim() ? `/${brandFrameText.trim().toUpperCase()}` : ''}` : 'Off'}
+                                    </span>
+                                    {webcamMode !== 'auto' && (
+                                        <span className="px-2.5 py-1 rounded-lg bg-[#e31084]/15 border border-[#e31084]/40 text-pink-200">
+                                            Cam: {webcamMode}
+                                        </span>
+                                    )}
+                                    {mirrorVideo && (
+                                        <span className="px-2.5 py-1 rounded-lg bg-[#e31084]/15 border border-[#e31084]/40 text-pink-200">
+                                            Mirrored
+                                        </span>
+                                    )}
+                                    {autoPushYt && (
+                                        <span className="px-2.5 py-1 rounded-lg bg-[#e31084]/15 border border-[#e31084]/40 text-pink-200">
+                                            YT: {autoPushYtMode === 'auto' ? 'Auto-Upload' : 'Ask & Push'}
+                                        </span>
+                                    )}
+                                </div>
+
                                 <button
                                     type="button"
-                                    onClick={() => setShowAdvanced((v) => !v)}
-                                    className="text-xs text-purple-400 hover:text-purple-300 cursor-pointer flex items-center gap-1 font-medium transition-colors"
+                                    onClick={() => setShowPlacementModal(true)}
+                                    className="w-full h-10 rounded-xl font-semibold text-xs flex items-center justify-center gap-2 transition-all duration-150 active:scale-[0.97] cursor-pointer bg-gradient-to-r from-[#e31084] to-[#f03b9f] hover:brightness-110 text-white shadow-[0_4px_18px_rgba(227,16,132,0.32)] border-t border-white/20"
                                 >
-                                    <span>{showAdvanced ? 'Simple' : 'Fine-tune'}</span>
-                                    <ChevronDown size={13} className={`transition-transform duration-200 ${showAdvanced ? 'rotate-180' : ''}`} />
+                                    <Sliders size={14} />
+                                    <span>Configure Studio, Overlays &amp; Frames</span>
                                 </button>
                             </div>
-
-                            {/* Inset Group Container */}
-                            <div className="rounded-2xl bg-black/30 border border-white/[0.08] overflow-hidden divide-y divide-white/[0.06] backdrop-blur-md">
-                                {/* Speaker Layout Row */}
-                                <div className="p-3 sm:px-4 space-y-1.5">
-                                    <label className="text-[11px] font-medium text-white/70 block">Vertical Speaker Layout</label>
-                                    <select
-                                        value={layout}
-                                        onChange={(e) => setLayout(e.target.value)}
-                                        className="w-full h-9 px-3 text-xs rounded-xl border border-white/[0.1] bg-[#161720] text-white focus:border-purple-400 focus:outline-none cursor-pointer"
-                                    >
-                                        <option value="auto">Auto (AI detects speaker framing)</option>
-                                        <option value="streamer_top">Streamer Top / Stream Bottom (Gaming Shorts)</option>
-                                        <option value="streamer_bottom">Stream Top / Streamer Bottom (Reaction / Tutorial)</option>
-                                        <option value="split">Two speakers stacked (Split view)</option>
-                                        <option value="screencast">Screen over presenter (Screencast)</option>
-                                        <option value="none">Single centered crop only</option>
-                                    </select>
-                                </div>
-
-                                {/* Streamer Webcam Corner / Tracing Box Row */}
-                                {outputFormat === 'vertical' && ['auto', 'streamer_top', 'streamer_bottom'].includes(layout) && (
-                                    <div className="p-3 sm:px-4">
-                                        <WebcamBoxPicker
-                                            compact
-                                            mode={webcamMode}
-                                            box={webcamBox}
-                                            previewSrc={mode === 'file' ? filePreviewFrame : null}
-                                            onChange={({ webcam_mode: nextMode, webcam_box: nextBox }) => {
-                                                setWebcamMode(nextMode);
-                                                if (nextBox !== undefined) setWebcamBox(nextBox);
-                                            }}
-                                        />
-                                    </div>
-                                )}
-
-                                {/* Auto-Hook Titles Row with Apple Toggle Switch */}
-                                <div className="p-3 sm:px-4 space-y-2">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <div className="flex items-center gap-3">
-                                            <label className="relative inline-flex items-center cursor-pointer select-none">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={autoHook}
-                                                    onChange={(e) => setAutoHook(e.target.checked)}
-                                                    className="sr-only peer"
-                                                />
-                                                <div className="w-10 h-6 bg-white/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600 shadow-inner" />
-                                            </label>
-                                            <span className="text-xs font-medium text-white select-none">Auto-Hook Titles</span>
-                                        </div>
-
-                                        {autoHook && (
-                                            <select
-                                                value={autoHookStyle}
-                                                onChange={(e) => setAutoHookStyle(e.target.value)}
-                                                className="h-7 px-2.5 text-[11px] rounded-lg border border-white/[0.1] bg-[#161720] text-white focus:outline-none cursor-pointer"
-                                            >
-                                                <option value="pill">Pills</option>
-                                                <option value="cyan_glow">Neon Cyan (Gamer)</option>
-                                                <option value="classic">Classic</option>
-                                                <option value="dark">Dark</option>
-                                                <option value="yellow">Yellow</option>
-                                                <option value="red">Red</option>
-                                                <option value="outline">Outline</option>
-                                                <option value="outline_yellow">Outline+</option>
-                                            </select>
-                                        )}
-                                    </div>
-                                    {autoHook && (
-                                        <input
-                                            type="text"
-                                            value={streamerName}
-                                            onChange={(e) => setStreamerName(e.target.value)}
-                                            placeholder="Streamer name for 3-4 word hooks (auto-detected on links)"
-                                            className="w-full h-8 px-2.5 text-[11.5px] rounded-lg bg-black/40 border border-white/10 text-white placeholder-white/35 focus:border-[#e31084] focus:outline-none"
-                                        />
-                                    )}
-                                </div>
-
-                                {/* Mirror Video Row (flipped before subtitles) */}
-                                <div className="p-3 sm:px-4 flex items-center justify-between gap-3">
-                                    <div className="flex items-center gap-3 min-w-0">
-                                        <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
-                                            <input
-                                                type="checkbox"
-                                                checked={mirrorVideo}
-                                                onChange={(e) => setMirrorVideo(e.target.checked)}
-                                                className="sr-only peer"
-                                            />
-                                            <div className="w-10 h-6 bg-white/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#e31084] shadow-inner" />
-                                        </label>
-                                        <div className="min-w-0">
-                                            <span className="text-xs font-medium text-white select-none block">Mirror Video</span>
-                                            <span className="text-[10.5px] text-white/45 block leading-tight">
-                                                Flip horizontally before subtitles (captions stay normal)
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Auto-Push to YouTube Automation Row */}
-                                <div className="p-3 sm:px-4 space-y-2.5">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <div className="flex items-center gap-3 min-w-0">
-                                            <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={autoPushYt}
-                                                    onChange={(e) => setAutoPushYt(e.target.checked)}
-                                                    className="sr-only peer"
-                                                />
-                                                <div className="w-10 h-6 bg-white/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#e31084] shadow-inner" />
-                                            </label>
-                                            <div className="min-w-0">
-                                                <span className="text-xs font-medium text-white select-none block">Auto-Push to YouTube</span>
-                                                <span className="text-[10.5px] text-white/45 block leading-tight">
-                                                    Direct YouTube upload when Studio clips finish (no Live Clipper pipeline)
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {autoPushYt && (
-                                        <div className="space-y-2.5 pt-1 pl-1 animate-fade">
-                                            <div className="grid grid-cols-2 p-1 rounded-xl bg-black/40 border border-white/10 gap-1 text-[11px]">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setAutoPushYtMode('review')}
-                                                    className={`py-1.5 px-2 rounded-lg font-medium transition-all cursor-pointer ${
-                                                        autoPushYtMode === 'review'
-                                                            ? 'bg-white/15 text-white border border-white/20'
-                                                            : 'text-white/55 hover:text-white border border-transparent'
-                                                    }`}
-                                                >
-                                                    Tick &amp; Ask Title/Desc
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setAutoPushYtMode('auto')}
-                                                    className={`py-1.5 px-2 rounded-lg font-medium transition-all cursor-pointer ${
-                                                        autoPushYtMode === 'auto'
-                                                            ? 'bg-[#e31084]/25 text-pink-100 border border-[#e31084]/45'
-                                                            : 'text-white/55 hover:text-white border border-transparent'
-                                                    }`}
-                                                >
-                                                    Auto-Upload Immediately
-                                                </button>
-                                            </div>
-
-                                            {autoPushYtMode === 'auto' && (
-                                                <div className="space-y-2">
-                                                    <input
-                                                        type="text"
-                                                        maxLength={100}
-                                                        value={autoPushYtTitle}
-                                                        onChange={(e) => setAutoPushYtTitle(e.target.value)}
-                                                        placeholder="Title (leave blank to use clip/default title) 😱"
-                                                        className="w-full h-8 px-2.5 text-xs rounded-lg bg-black/40 border border-white/10 text-white placeholder-white/35 focus:border-[#e31084] focus:outline-none"
-                                                    />
-                                                    <div className="flex flex-wrap gap-1">
-                                                        {['😱', '🔥', '💀', '🚨', '🎮', '🤯'].map((em) => (
-                                                            <button
-                                                                key={em}
-                                                                type="button"
-                                                                onClick={() => setAutoPushYtTitle((t) => `${t}${t && !t.endsWith(' ') ? ' ' : ''}${em}`.slice(0, 100))}
-                                                                className="w-6 h-6 rounded-md bg-white/[0.06] hover:bg-white/[0.14] border border-white/10 text-xs flex items-center justify-center cursor-pointer active:scale-90"
-                                                                title={`Add ${em} to title`}
-                                                            >
-                                                                {em}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                    <textarea
-                                                        rows={2}
-                                                        maxLength={5000}
-                                                        value={autoPushYtDesc}
-                                                        onChange={(e) => setAutoPushYtDesc(e.target.value)}
-                                                        placeholder="Description & #hashtags (blank uses .env default)…"
-                                                        className="w-full p-2 text-xs rounded-lg bg-black/40 border border-white/10 text-white placeholder-white/35 focus:border-[#e31084] focus:outline-none resize-none"
-                                                    />
-                                                    <select
-                                                        value={autoPushYtPrivacy}
-                                                        onChange={(e) => setAutoPushYtPrivacy(e.target.value)}
-                                                        className="w-full h-8 px-2.5 text-xs rounded-lg bg-[#161720] border border-white/10 text-white focus:outline-none cursor-pointer"
-                                                    >
-                                                        <option value="public">Public</option>
-                                                        <option value="unlisted">Unlisted</option>
-                                                        <option value="private">Private</option>
-                                                    </select>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Fine-Tuning Drawer */}
-                                {showAdvanced && (
-                                    <div className="p-3 sm:px-4 space-y-3 bg-white/[0.02] animate-fade">
-                                        <div className="grid grid-cols-3 gap-2">
-                                            <div>
-                                                <label className="text-[10px] text-white/50 uppercase tracking-wider block mb-1">Clips Count</label>
-                                                <input
-                                                    type="number" min="1" max="15" step="1"
-                                                    value={targetClips}
-                                                    onChange={(e) => setTargetClips(e.target.value)}
-                                                    placeholder="Auto"
-                                                    className="w-full h-8 px-2 text-xs rounded-xl border border-white/[0.1] bg-black/40 text-white focus:outline-none text-center"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] text-white/50 uppercase tracking-wider block mb-1">Min Sec</label>
-                                                <input
-                                                    type="number" min="15" max="180" step="5"
-                                                    value={clipMinSeconds}
-                                                    onChange={(e) => setClipMinSeconds(e.target.value)}
-                                                    placeholder="15s"
-                                                    className="w-full h-8 px-2 text-xs rounded-xl border border-white/[0.1] bg-black/40 text-white focus:outline-none text-center"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] text-white/50 uppercase tracking-wider block mb-1">Max Sec</label>
-                                                <input
-                                                    type="number" min="30" max="300" step="5"
-                                                    value={clipMaxSeconds}
-                                                    onChange={(e) => setClipMaxSeconds(e.target.value)}
-                                                    placeholder="60s"
-                                                    className="w-full h-8 px-2 text-xs rounded-xl border border-white/[0.1] bg-black/40 text-white focus:outline-none text-center"
-                                                />
-                                            </div>
-                                        </div>
-                                        <p className="text-[10.5px] text-white/40 leading-tight">
-                                            Duration guidelines for clips. Leave blank to allow Gemini to maximize retention.
-                                        </p>
-                                    </div>
-                                )}
-                            </div>
                         </div>
+
+                        <StudioParametersModal
+                            isOpen={showPlacementModal}
+                            onClose={() => setShowPlacementModal(false)}
+                            clipName={mode === 'file' ? (file?.name || '') : ''}
+                            outputFormat={outputFormat}
+                            mode={mode}
+                            previewSrc={mode === 'file' ? filePreviewFrame : null}
+                            layout={layout}
+                            setLayout={setLayout}
+                            webcamMode={webcamMode}
+                            setWebcamMode={setWebcamMode}
+                            webcamBox={webcamBox}
+                            setWebcamBox={setWebcamBox}
+                            mirrorVideo={mirrorVideo}
+                            setMirrorVideo={setMirrorVideo}
+                            autoHook={autoHook}
+                            setAutoHook={setAutoHook}
+                            autoHookStyle={autoHookStyle}
+                            setAutoHookStyle={setAutoHookStyle}
+                            streamerName={streamerName}
+                            setStreamerName={setStreamerName}
+                            hookPosition={hookPosition}
+                            setHookPosition={setHookPosition}
+                            hookY={hookY}
+                            setHookY={setHookY}
+                            hookScale={hookScale}
+                            setHookScale={setHookScale}
+                            subtitlePosition={subtitlePosition}
+                            setSubtitlePosition={setSubtitlePosition}
+                            subtitleY={subtitleY}
+                            setSubtitleY={setSubtitleY}
+                            subtitleScale={subtitleScale}
+                            setSubtitleScale={setSubtitleScale}
+                            subtitleColor={subtitleColor}
+                            setSubtitleColor={setSubtitleColor}
+                            subtitleHighlightColor={subtitleHighlightColor}
+                            setSubtitleHighlightColor={setSubtitleHighlightColor}
+                            brandFrameEnabled={brandFrameEnabled}
+                            setBrandFrameEnabled={setBrandFrameEnabled}
+                            brandFrameType={brandFrameType}
+                            setBrandFrameType={setBrandFrameType}
+                            brandFrameText={brandFrameText}
+                            setBrandFrameText={setBrandFrameText}
+                            brandFrameY={brandFrameY}
+                            setBrandFrameY={setBrandFrameY}
+                            brandFrameScale={brandFrameScale}
+                            setBrandFrameScale={setBrandFrameScale}
+                            autoPushYt={autoPushYt}
+                            setAutoPushYt={setAutoPushYt}
+                            autoPushYtMode={autoPushYtMode}
+                            setAutoPushYtMode={setAutoPushYtMode}
+                            autoPushYtTitle={autoPushYtTitle}
+                            setAutoPushYtTitle={setAutoPushYtTitle}
+                            autoPushYtDesc={autoPushYtDesc}
+                            setAutoPushYtDesc={setAutoPushYtDesc}
+                            autoPushYtPrivacy={autoPushYtPrivacy}
+                            setAutoPushYtPrivacy={setAutoPushYtPrivacy}
+                            targetClips={targetClips}
+                            setTargetClips={setTargetClips}
+                            clipMinSeconds={clipMinSeconds}
+                            setClipMinSeconds={setClipMinSeconds}
+                            clipMaxSeconds={clipMaxSeconds}
+                            setClipMaxSeconds={setClipMaxSeconds}
+                        />
 
                         {/* 4. Rights Confirmation & Primary Launch CTA */}
                         <div className="pt-2 border-t border-white/[0.08] space-y-4">
@@ -849,7 +858,11 @@ export default function MediaInput({
                                 ) : (
                                     <>
                                         <Sparkles size={16} />
-                                        <span>Generate Viral Clips</span>
+                                        <span>
+                                            {mode === 'file' && keepFullClip
+                                                ? 'Transcribe & Subtitle Full Clip'
+                                                : 'Generate Viral Clips'}
+                                        </span>
                                     </>
                                 )}
                             </button>
