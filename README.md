@@ -216,3 +216,15 @@ Contributions, feedback, and pull requests are welcome!
 This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
 
 Developed & Maintained with ❤️ by [ItzVirAj](https://github.com/ItzVirAj).
+
+### Caption looks and timed stickers
+
+In **Live Clipper → Skipper**, choose **Enable Auto**, select a caption look or switch captions off, then choose **Start Auto**. Skipper remembers the choice and attaches it to each new capture. Cancel keeps the current mode. Auto publicly uploads to the connected YouTube channel through the existing publishing workflow. Before a capture is available, the picker shows sample text on a plain background.
+
+In the **clip editor**, open **Captions** to preview a look on the current clip. **Adjust look** controls the size, position, highlight color, and group length. **Memes/Emojis** places a sticker at the playhead. Drag it on the video, then set its size and time range in the panel. **Re-render clip** saves the settings and exports the video. **Save this look for every clip in this job** also saves the caption choice for sibling clips. Each sibling uses it on its next editor render. Stickers belong to the individual clip.
+
+Add a preset to `dashboard/src/captions/captionStyles.json` with a unique ID, display name, font, grouping, colors, position and an existing effect. Both pickers and the exporter read this registry. Bundle a new font and its license when needed. Set `file` to the backend filename under `dashboard/public/captions/` or `fonts/` and `fontUrl` to the dashboard asset URL. The bundled looks use Montserrat, Bangers, Press Start 2P and DejaVu Sans Mono. Sticker images are rasterized Noto Color Emoji glyphs. Attribution is alongside the font and sticker assets.
+
+FFmpeg uses libass for timed text and Pillow-generated transparent strips for gradients and rounded pills. The browser previews the same settings with CSS. Font fallback and line breaks can vary by script and platform. For scripts missing from the selected gradient or pill font, export uses libass and the system fallback fonts. The existing backend and dashboard startup commands above run the feature.
+
+[Compare all 12 exported looks](examples/caption-looks/styles.jpg) · [Watch the caption timing reel](examples/caption-looks/style-reel.mp4)

@@ -431,3 +431,32 @@ def test_frame_geometry_and_failure_are_handled(job, fake_recut, monkeypatch, su
         assert edl['frame_y_pct'] is None
     else:
         assert job['meta_path'].read_text() == before
+
+
+def test_save_look_and_apply_to_sibling_without_copying_stickers(job, fake_recut, monkeypatch):
+    data = json.loads(job['meta_path'].read_text())
+    data['shorts'].append(dict(data['shorts'][0]))
+    job['meta_path'].write_text(json.dumps(data))
+    calls = []
+    def composite(src, dst, words, look, stickers):
+        calls.append((look, stickers, words))
+        return False
+    monkeypatch.setattr(app_module, 'composite_looks', composite)
+    body = {'job_id':JOB_ID, 'clip_index':0, 'segments':[{'start':10,'end':40}],
+            'captionLook':{'captionStyleId':'pixel'}, 'applyLookToAll':True,
+            'stickers':[{'id':'1','asset':'eyes','x':.4,'y':.4,'scale':.2,'start':1,'end':2}]}
+    assert _request('POST', '/api/clip/rerender',body).status_code == 200
+    a,b = json.loads(job['meta_path'].read_text())['shorts']
+    assert a['captionLook'] == b['captionLook']
+    assert b['look_pending'] and 'stickers' not in b
+    assert a['stickers'][0]['asset'] == 'eyes'
+    assert calls[0][0].captionStyleId == 'pixel' and calls[0][2][0]['s'] == 2
+    assert fake_recut[0]['captions_transcript'] is None
+
+
+def test_reject_unknown_look(job, fake_recut):
+    response = _request('POST','/api/clip/rerender', {
+        'job_id':JOB_ID,'clip_index':0,'segments':[{'start':10,'end':40}],
+        'captionLook':{'captionStyleId':'missing'}})
+    assert response.status_code == 422
+    assert not fake_recut

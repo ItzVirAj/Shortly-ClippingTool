@@ -143,3 +143,29 @@ def test_n8n_tick_handles_render_failure_and_continues(tmp_path, monkeypatch):
     assert store.get(items[0]['id'])['failed_stage'] == 'editing'
     assert store.get(items[0]['id'])['status'] == 'attention'
     assert store.get(items[1]['id'])['status'] == 'metadata'
+
+
+def test_enable_auto_validates_and_remembers_look(tmp_path, monkeypatch):
+    import asyncio
+    import httpx
+    from fastapi import FastAPI
+    from publishing_routes import install
+    from publishing_youtube import YouTube
+
+    async def channel(self):
+        return {'id':'test','title':'Test channel'}
+    monkeypatch.setattr(YouTube, 'channel', channel)
+    monkeypatch.setenv('SHORTLY_PUBLISHING_TOKEN','secret')
+    app = FastAPI()
+    store = install(app,tmp_path,lambda:[])
+    async def fetch():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://test',
+                                     headers={'Authorization':'Bearer secret'}) as c:
+            endpoint = '/api/publishing/skipper'
+            assert (await c.put(endpoint,json={'enabled':True,'look':{'captionStyleId':'invalid'}})).status_code == 422
+            assert not store.settings().get('skipper')
+            assert (await c.put(endpoint,json={'enabled':True,'look':{'captionStyleId':'vice'}})).status_code == 200
+            assert store.settings()['skipper']
+            assert (await c.put(endpoint,json={'enabled':False})).status_code == 200
+            assert store.settings()['skipper_look']['captionStyleId']=='vice'
+    asyncio.run(fetch())
