@@ -118,6 +118,8 @@ def test_rolling_buffer_index_and_pruning(temp_rec_dir):
         seg1.write_bytes(b"MOCK_1")
         seg2.write_bytes(b"MOCK_2")
 
+        (buffer_dir / "seg_00003.mp4").write_bytes(b"STILL_OPEN")
+        (buffer_dir / "completed.csv").write_text("seg_00001.mp4,0,5\nseg_00002.mp4,5,12\n")
         # Start monitor loop for a brief cycle
         monitor_task = asyncio.create_task(recorder._monitor_loop(buffer_dir, index_path))
         await asyncio.sleep(0.3)
@@ -126,7 +128,8 @@ def test_rolling_buffer_index_and_pruning(temp_rec_dir):
         assert index_path.exists()
         with open(index_path, "r", encoding="utf-8") as f:
             idx = json.load(f)
-        assert len(idx["segments"]) >= 2
+        assert [s["file"] for s in idx["segments"]] == [seg1.name, seg2.name]
+        assert idx["segments"][1]["duration"] == 7
 
         await recorder.stop()
 

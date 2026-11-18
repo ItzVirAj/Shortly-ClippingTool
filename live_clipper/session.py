@@ -151,7 +151,7 @@ class LiveClipperSession:
         self._active_video_gap_start: Optional[float] = None
         self._kick_subscription_id: Optional[str] = None
         self._recent_messages: collections.deque = collections.deque(maxlen=400)
-        self._msg_timestamps: collections.deque = collections.deque(maxlen=2000)
+        self._msg_timestamps: collections.deque = collections.deque()
 
     @property
     def id(self) -> str:
@@ -292,6 +292,8 @@ class LiveClipperSession:
         self.persist_session_json()
 
         # Connect sources
+        if isinstance(self.chat_source, KickChatSource):
+            self.chat_source.set_session_clock_zero(self._session_clock_zero)
         await self.chat_source.connect()
         self.session_data.chat_state = self.chat_source.state
 
@@ -548,7 +550,7 @@ class LiveClipperSession:
             raw_segments = buffer_index.get("segments", [])
             latest_t = 0.0
             if raw_segments:
-                latest_t = max(float(s.get("end_sec", float(s.get("start_sec", 0.0)) + float(s.get("duration", 0.0)))) for s in raw_segments)
+                latest_t = max(float(s.get("end_sec", float(s.get("start_sec", s.get("session_start", 0.0))) + float(s.get("duration", 0.0)))) for s in raw_segments)
 
             # If recording buffer hasn't reached end_rec yet, wait for video writer to flush the chunk
             if latest_t < end_rec and attempt < max_retries - 1:

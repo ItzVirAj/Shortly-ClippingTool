@@ -15,6 +15,7 @@ import {
 export default function LiveFeedPreview({ 
   session, 
   messages = [], 
+  transport,
   streamRate = 0,
   msgsPerMin = 0,
 }) {
@@ -245,7 +246,7 @@ export default function LiveFeedPreview({
             <div className="p-2 border-b border-white/10 bg-white/[0.03] flex items-center justify-between shrink-0">
               <div className="flex items-center gap-1.5 text-xs font-mono font-medium text-ink">
                 <MessageSquare size={13} className="text-red-500" />
-                <span>Live Chat</span>
+                <span>Live Chat{transport && ` · ${transport}`}</span>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               </div>
               <div className="flex items-center gap-2 text-micro font-mono">
@@ -253,7 +254,7 @@ export default function LiveFeedPreview({
                   <span>~{msgsPerMin} msgs/min</span>
                   {streamRate > 0 && <span className="text-muted/80 font-normal">({streamRate}/s)</span>}
                 </span>
-                <span className="text-muted">{messages.length} msgs</span>
+                <span className="text-muted">{messages.length} shown</span>
               </div>
             </div>
 

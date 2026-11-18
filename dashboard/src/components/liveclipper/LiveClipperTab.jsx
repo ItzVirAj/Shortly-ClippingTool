@@ -136,9 +136,9 @@ export default function LiveClipperTab({ onOpenInEditor }) {
 
         if (seriesData.points && seriesData.points.length > 0) {
           setPoints((prev) => {
-            const existingTs = new Set(prev.map((p) => p.t));
-            const newPoints = seriesData.points.filter((p) => !existingTs.has(p.t));
-            const merged = [...prev, ...newPoints];
+            const byTime = new Map(prev.map(p => [p.t, p]));
+            for (const point of seriesData.points) byTime.set(point.t, point);
+            const merged = [...byTime.values()];
             // Sort and clamp to last 30 minutes of points to keep memory bounded
             merged.sort((a, b) => a.t - b.t);
             return merged.slice(-600);
@@ -387,6 +387,7 @@ export default function LiveClipperTab({ onOpenInEditor }) {
           <LiveFeedPreview
             session={activeSession}
             messages={liveMessages}
+            transport={chatStats.chat_transport}
             streamRate={chatStats.msgs_per_sec || activeSession?.stats?.msgs_per_sec_now || 0}
             msgsPerMin={chatStats.msgs_per_min || activeSession?.stats?.msgs_per_min_now || 0}
           />

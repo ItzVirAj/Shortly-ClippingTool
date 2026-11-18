@@ -1,5 +1,7 @@
 """Official Kick ChatSource implementation via webhook receiver (Section 7.2 of LIVE_CLIPPER_SPEC)."""
 import asyncio
+from collections import OrderedDict
+from uuid import uuid4
 from datetime import datetime, timezone
 import json
 import logging
@@ -35,7 +37,12 @@ class KickChatSource(ChatSource):
         self._last_event_monotonic: float = time.monotonic()
         self._active_gap_start: Optional[float] = None
         self._gaps: List[Tuple[float, float]] = []
-        self._seen_message_ids: set = set()
+        self._seen_message_ids = OrderedDict()
+        self._socket_task: Optional[asyncio.Task] = None
+        self._subscribed = False
+        self._chatroom_id: Optional[int] = None
+        self._client_id = str(uuid4())
+        self.transport = "connecting"
         self._poll_task: Optional[asyncio.Task] = None
         self._channel_id: Optional[int] = None
 
@@ -61,19 +68,22 @@ class KickChatSource(ChatSource):
         self._state = "connected"
         # Start direct REST chat tail worker in real sessions
         if self.keepalive_timeout_sec >= 1.0:
+            self._socket_task = asyncio.create_task(self._socket_worker())
             self._poll_task = asyncio.create_task(self._poll_worker())
 
     async def close(self) -> None:
         """Gracefully disconnect and unblock event consumer."""
         self._state = "disconnected"
         self._stop_event.set()
-        if self._poll_task and not self._poll_task.done():
-            self._poll_task.cancel()
+        tasks = [t for t in (self._socket_task, self._poll_task) if t is not None]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         # Put sentinel to unblock any waiting consumer
         await self._queue.put(None)
 
     async def _resolve_channel_id(self) -> Optional[int]:
-        if self._channel_id:
+        if self._channel_id and self._chatroom_id:
             return self._channel_id
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
@@ -82,21 +92,91 @@ class KickChatSource(ChatSource):
                     headers={"User-Agent": "Mozilla/5.0"},
                 )
                 if res.status_code == 200:
-                    self._channel_id = res.json().get("id")
+                    channel = res.json()
+                    self._channel_id = channel.get("id")
+                    self._chatroom_id = (channel.get("chatroom") or {}).get("id")
                     return self._channel_id
         except Exception as e:
             logger.debug(f"Kick channel resolve failed for {self.channel}: {e}")
         return None
 
+    def _is_new(self, message_id) -> bool:
+        if not message_id:
+            return True
+        key = str(message_id)
+        if key in self._seen_message_ids:
+            return False
+        self._seen_message_ids[key] = None
+        if len(self._seen_message_ids) > 10000:
+            self._seen_message_ids.popitem(last=False)
+        return True
+
+    async def _socket_worker(self) -> None:
+        """Negotiate the public chatroom feed; Kick assigns the Pusher cluster per channel."""
+        import websockets
+
+        delay = 1
+        async with httpx.AsyncClient(timeout=8) as client:
+            while not self._stop_event.is_set():
+                try:
+                    channel_id = await self._resolve_channel_id()
+                    if not channel_id or not self._chatroom_id:
+                        raise ValueError("Kick chatroom unavailable")
+                    response = await client.post(
+                        f"https://web.kick.com/api/v1/realtime/channels/{int(channel_id)}/chat/connection",
+                        json={"client": {"id": self._client_id, "type": "web"},
+                              "capabilities": {"accepted_providers": [{"provider": "pusher"}]}},
+                    )
+                    response.raise_for_status()
+                    choices = response.json()["data"]["connections"]
+                    credentials = next(c["credentials"] for c in choices if c.get("provider") == "pusher")
+                    cluster, key = credentials["cluster"], credentials["app_key"]
+                    if not re.fullmatch(r"[a-z0-9-]+", cluster) or not re.fullmatch(r"[A-Za-z0-9]+", key):
+                        raise ValueError("Invalid Kick realtime connection")
+                    room = f"chatrooms.{int(self._chatroom_id)}.v2"
+                    url = f"wss://ws-{cluster}.pusher.com/app/{key}?protocol=7&client=js&version=8.4.0"
+                    async with websockets.connect(url, open_timeout=10, close_timeout=2) as socket:
+                        await socket.send(json.dumps({"event": "pusher:subscribe", "data": {"channel": room}}))
+                        while not self._stop_event.is_set():
+                            packet = json.loads(await asyncio.wait_for(socket.recv(), 150 if self._subscribed else 12))
+                            event = packet.get("event")
+                            if event == "pusher:error":
+                                raise ValueError("Kick realtime subscription rejected")
+                            if event == "pusher:ping":
+                                await socket.send(json.dumps({"event": "pusher:pong", "data": {}}))
+                            if packet.get("channel") != room:
+                                continue
+                            if event == "pusher_internal:subscription_succeeded":
+                                self._subscribed = True
+                                self.transport = "live socket"
+                                delay = 1
+                            elif event == r"App\Events\ChatMessageEvent":
+                                message = packet["data"]
+                                if isinstance(message, str):
+                                    message = json.loads(message)
+                                self._ingest_kick_dict(message)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning("Kick realtime unavailable for %s (%s); retrying in %ss",
+                                   self.channel, type(exc).__name__, delay)
+                finally:
+                    self._subscribed = False
+                    self.transport = "reconnecting"
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 60)
+
     def _ingest_kick_dict(self, m: Dict[str, Any], custom_t: Optional[float] = None) -> None:
         """Normalize a Kick REST message dict and push to queue."""
+        if not self._is_new(m.get("id")):
+            return
         sender = m.get("sender") or {}
         user = sender.get("username") or sender.get("slug") or "viewer"
         text = m.get("content") or ""
 
         # Emotes count
         emotes_count = len(re.findall(r"\[emote:\d+:[^\]]*\]", text))
-        is_bot = user.lower() in self.bot_users
+        is_bot = str(user).lower() in self.bot_users
 
         if custom_t is not None:
             session_t = custom_t
@@ -127,62 +207,41 @@ class KickChatSource(ChatSource):
 
     async def _poll_worker(self) -> None:
         """Background worker tailing Kick live chat over REST."""
-        cid = await self._resolve_channel_id()
-        if not cid:
-            await asyncio.sleep(2.0)
-            cid = await self._resolve_channel_id()
-        if not cid:
-            logger.warning(f"Could not resolve channel ID for {self.channel}; relying purely on webhooks.")
-            return
-
+        # The REST endpoint is a cached, limited snapshot. Use it only when
+        # streaming is unavailable and never replay the initial history as a burst.
         first_poll = True
         async with httpx.AsyncClient(timeout=6.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
             while not self._stop_event.is_set():
+                await asyncio.sleep(2)
+                if self._subscribed:
+                    first_poll = True
+                    continue
                 try:
+                    cid = await self._resolve_channel_id()
+                    if not cid:
+                        continue
                     res = await client.get(f"https://kick.com/api/v2/channels/{cid}/messages")
-                    if res.status_code == 200:
-                        data = res.json().get("data", {}).get("messages", [])
-                        # Messages arrive newest-first from Kick REST; reverse to chronological
-                        messages_in_order = list(reversed(data))
-
-                        if first_poll:
-                            # Ingest the last 5 messages so chat appears immediately on start
-                            recent = messages_in_order[-5:] if len(messages_in_order) > 5 else messages_in_order
-                            for m in messages_in_order:
-                                mid = m.get("id")
-                                if mid:
-                                    self._seen_message_ids.add(mid)
-                            for m in recent:
-                                self._ingest_kick_dict(m)
-                            first_poll = False
-                        else:
-                            now_mono = time.monotonic()
-                            prev_mono = getattr(self, "_last_poll_mono", now_mono - 0.75)
-                            self._last_poll_mono = now_mono
-
-                            new_msgs = [m for m in messages_in_order if m.get("id") and m.get("id") not in self._seen_message_ids]
-                            n_total = len(new_msgs)
-
-                            for idx, m in enumerate(new_msgs):
-                                mid = m.get("id")
-                                self._seen_message_ids.add(mid)
-                                # Distribute messages evenly across poll interval to avoid clumping
-                                msg_mono = prev_mono + ((idx + 1) / (n_total + 1)) * (now_mono - prev_mono)
-                                msg_t = round(max(0.0, msg_mono - self.session_clock_zero), 3)
-                                self._ingest_kick_dict(m, custom_t=msg_t)
-
-                            # Keep seen set bounded
-                            if len(self._seen_message_ids) > 2000:
-                                self._seen_message_ids = set(list(self._seen_message_ids)[-1000:])
-                except asyncio.CancelledError:
-                    break
-                except Exception as e:
-                    logger.debug(f"Kick chat poll error: {e}")
-
-                try:
-                    await asyncio.sleep(0.75)
-                except asyncio.CancelledError:
-                    break
+                    res.raise_for_status()
+                    if self._subscribed:
+                        continue
+                    self.transport = "recent history (sampled)"
+                    messages = reversed(res.json()["data"]["messages"])
+                    for message in messages:
+                        mid = message.get("id")
+                        if mid and first_poll:
+                            self._is_new(mid)
+                        elif mid:
+                            try:
+                                created = datetime.fromisoformat(message["created_at"].replace("Z", "+00:00"))
+                                age = max(0.0, time.time() - created.timestamp())
+                                timestamp = time.monotonic() - self.session_clock_zero - age
+                            except (KeyError, ValueError, AttributeError, OSError):
+                                timestamp = time.monotonic() - self.session_clock_zero
+                            if timestamp >= 0:
+                                self._ingest_kick_dict(message, custom_t=timestamp)
+                    first_poll = False
+                except (httpx.HTTPError, ValueError, KeyError) as exc:
+                    logger.debug("Kick history unavailable for %s: %s", self.channel, type(exc).__name__)
 
     def dispatch_raw_webhook(self, payload: Dict[str, Any]) -> bool:
         """Ingest and normalize a verified Kick webhook payload into the event queue.
@@ -205,6 +264,9 @@ class KickChatSource(ChatSource):
         if b_slug and b_slug != self.channel:
             return False
 
+        if not self._is_new(data.get("message_id") or data.get("id")):
+            return False
+
         # Extract message fields
         sender = data.get("sender") or {}
         user = sender.get("username") or sender.get("slug") or sender.get("id") or "viewer"
@@ -215,7 +277,7 @@ class KickChatSource(ChatSource):
         emotes_count = len(emotes_field) if isinstance(emotes_field, list) else int(emotes_field or 0)
 
         # Bot check
-        is_bot = user.lower() in self.bot_users or bool(sender.get("is_bot", False))
+        is_bot = str(user).lower() in self.bot_users or bool(sender.get("is_bot", False))
 
         # Monotonic session-clock timestamp
         session_t = round(max(0.0, time.monotonic() - self.session_clock_zero), 3)
@@ -259,7 +321,7 @@ class KickChatSource(ChatSource):
                 time_since_last = now_mono - self._last_event_monotonic
                 session_now = round(max(0.0, now_mono - self.session_clock_zero), 3)
 
-                if time_since_last >= self.keepalive_timeout_sec:
+                if not self._subscribed and time_since_last >= self.keepalive_timeout_sec:
                     if self._state != "reconnecting":
                         self._state = "reconnecting"
                         if self._active_gap_start is None:

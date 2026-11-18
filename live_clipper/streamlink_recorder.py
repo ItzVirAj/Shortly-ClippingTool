@@ -1,5 +1,6 @@
 """Real Streamlink & FFmpeg stream copy recorder wrapper (Section 7.3 of LIVE_CLIPPER_SPEC)."""
 import asyncio
+import csv
 import json
 import os
 from pathlib import Path
@@ -152,6 +153,9 @@ class StreamlinkRecorder(Recorder):
                 "-c", "copy",
                 "-f", "segment",
                 "-segment_time", str(int(self.segment_time_sec)),
+                "-segment_list", str(buffer_dir / "completed.csv"),
+                "-segment_list_type", "csv",
+                "-segment_list_size", "64",
                 "-reset_timestamps", "1",
                 segment_pattern,
             ]
@@ -170,13 +174,13 @@ class StreamlinkRecorder(Recorder):
         self._streamlink_proc = subprocess.Popen(
             sl_cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=None,  # Leave recorder diagnostics on the backend console.
         )
         self._ffmpeg_proc = subprocess.Popen(
             ff_cmd,
             stdin=self._streamlink_proc.stdout,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=None,
         )
         # Allow streamlink to receive SIGPIPE if ffmpeg exits
         if self._streamlink_proc.stdout:
@@ -191,7 +195,7 @@ class StreamlinkRecorder(Recorder):
 
     async def _monitor_loop(self, buffer_dir: Path, index_path: Path) -> None:
         """Periodically scan segments, prune rolling buffer, and detect process failures."""
-        known_segments = set()
+        media_origin = None
         last_seg_time = time.monotonic()
 
         try:
@@ -209,32 +213,43 @@ class StreamlinkRecorder(Recorder):
                         if self._active_gap_start is None:
                             self._active_gap_start = now_session
 
-                # 2. Update buffer index from disk
-                new_files = sorted(buffer_dir.glob("seg_*.mp4"))
-                if new_files:
-                    last_seg_time = now_mono
-                    if self._state == "reconnecting" and self._active_gap_start is not None:
-                        self._gaps.append((self._active_gap_start, now_session))
-                        self._active_gap_start = None
-                        self._state = "recording"
-
-                    # Add new segments to index
+                # FFmpeg writes a CSV row after closing each segment. An open
+                # MP4 can exist for seconds before its trailer is readable.
+                manifest = buffer_dir / "completed.csv"
+                if media_origin is None and not manifest.exists() and (buffer_dir / "seg_00000.mp4").exists():
+                    media_origin = now_session
+                if manifest.exists():
                     updated = False
                     try:
+                        with manifest.open(encoding="utf-8", newline="") as stream:
+                            rows = list(csv.reader(stream))
                         idx_data = {"segments": []}
                         if index_path.exists():
-                            with open(index_path, "r", encoding="utf-8") as f:
-                                idx_data = json.load(f)
-
-                        indexed_files = {s["file"] for s in idx_data.get("segments", [])}
-                        for f in new_files:
-                            if f.name not in indexed_files:
-                                idx_data["segments"].append({
-                                    "file": f.name,
-                                    "session_start": round(now_session, 2),
-                                    "duration": self.segment_time_sec,
-                                })
-                                updated = True
+                            with index_path.open(encoding="utf-8") as stream:
+                                idx_data = json.load(stream)
+                        if media_origin is None and rows and len(rows[-1]) == 3:
+                            media_origin = max(0.0, now_session - float(rows[-1][2]))
+                        indexed = {s["file"] for s in idx_data["segments"]}
+                        for row in rows:
+                            if len(row) != 3:
+                                continue
+                            name = Path(row[0]).name
+                            if name in indexed or not (buffer_dir / name).is_file():
+                                continue
+                            start, end = float(row[1]), float(row[2])
+                            if media_origin is None:
+                                media_origin = max(0.0, now_session - end)
+                            idx_data["segments"].append({
+                                "file": name, "session_start": round(media_origin + start, 3),
+                                "duration": end - start,
+                            })
+                            updated = True
+                            last_seg_time = now_mono
+                            if self._state == "reconnecting" and not (sl_dead or ff_dead):
+                                if self._active_gap_start is not None:
+                                    self._gaps.append((self._active_gap_start, now_session))
+                                    self._active_gap_start = None
+                                self._state = "recording"
 
                         # 3. Rolling buffer retention pruning
                         if self._mode == "rolling" and self.buffer_minutes > 0:

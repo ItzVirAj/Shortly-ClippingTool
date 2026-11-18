@@ -145,6 +145,7 @@ async def get_session_series(
             "cooldown_sec": active.detector.cooldown_sec,
         }
         stats_info = {
+            "chat_transport": getattr(active.chat_source, "transport", None),
             "msgs_per_sec": active.session_data.stats.msgs_per_sec_now,
             "msgs_per_min": active.session_data.stats.msgs_per_min_now,
             "events_total": active.session_data.stats.events_total,

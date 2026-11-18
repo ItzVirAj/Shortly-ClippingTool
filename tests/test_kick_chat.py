@@ -155,3 +155,75 @@ def test_webhook_receiver_route_integration(temp_live_dir, monkeypatch):
         await manager.stop_session(session.session_id)
 
     asyncio.run(_run())
+
+
+def test_kick_live_burst_reaches_graph_and_confirms_spike_once():
+    from spike_core.live import LiveSpikeDetector
+    from spike_core.models import DetectorConfig
+    source = KickChatSource('test')
+    detector = LiveSpikeDetector(DetectorConfig(bin_sec=5, smooth_bins=1, min_count=3, ratio_threshold=1.4))
+    for second in range(70):
+        count = 18 if 35 <= second < 40 else 1
+        for i in range(count):
+            mid = f'{second}-{i}'
+            source._ingest_kick_dict({'id': mid, 'sender': {'username': str(i)}, 'content': 'wow'}, custom_t=second)
+            assert not source.dispatch_raw_webhook({'message_id': mid, 'content': 'wow'})
+            detector.push(source._queue.get_nowait())
+    detector.advance(90)
+    assert next(point for point in detector.series() if point['t'] == 35)['count'] == 90
+    assert detector.poll()
+    assert source._queue.empty()
+
+
+def test_kick_realtime_negotiates_channel_and_subscribes_to_chatroom(monkeypatch):
+    import json
+    import httpx
+    import websockets
+
+    async def run():
+        source = KickChatSource("sample")
+        source._channel_id, source._chatroom_id = 100, 101
+        room = "chatrooms.101.v2"
+        sent = []
+        received = iter([
+            {"event": "pusher_internal:subscription_succeeded", "channel": room},
+            {"event": "pusher:ping"},
+            {"event": r"App\Events\ChatMessageEvent", "channel": room,
+             "data": json.dumps({"id": 44, "content": "live", "sender": {"username": "viewer"}})},
+        ])
+
+        def negotiate(request):
+            assert request.url.path == "/api/v1/realtime/channels/100/chat/connection"
+            return httpx.Response(200, json={"data": {"connections": [
+                {"provider": "pusher", "credentials": {"app_key": "example", "cluster": "us2"}}
+            ]}})
+
+        class Socket:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                pass
+
+            async def send(self, packet):
+                sent.append(json.loads(packet))
+
+            async def recv(self):
+                packet = next(received, None)
+                if packet:
+                    return json.dumps(packet)
+                await asyncio.Future()
+
+        client = httpx.AsyncClient
+        monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: client(transport=httpx.MockTransport(negotiate), **kw))
+        monkeypatch.setattr(websockets, "connect", lambda *a, **kw: Socket())
+        source._socket_task = asyncio.create_task(source._socket_worker())
+        try:
+            message = await asyncio.wait_for(source._queue.get(), 2)
+            assert message.text == "live" and source.transport == "live socket"
+            assert sent[0]["data"]["channel"] == room
+            assert sent[1]["event"] == "pusher:pong"
+        finally:
+            await source.close()
+
+    asyncio.run(run())
