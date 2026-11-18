@@ -181,14 +181,18 @@ def render(item, root):
     transcript = transcribe_video(str(vertical)) if audio_stream else {'segments': [], 'language': 'und'}
     from caption_looks import Look, composite
     from recut import transcript_words
-    words = transcript_words(transcript)
+    from .caption_filter import caption_transcript
+    look = Look.model_validate(item['captionLook']) if item.get('captionLook') else None
+    captions_enabled = look.captionsEnabled if look else os.getenv("AUTO_CAPTIONS", "1").strip() != "0"
+    subtitles = caption_transcript(transcript) if captions_enabled else transcript
+    words = transcript_words(subtitles) if captions_enabled else []
     captioned = str(vertical)
-    if item.get('captionLook'):
+    if look:
         target = folder / 'captioned.mp4'
-        if composite(vertical, target, words, Look.model_validate(item['captionLook']), []):
+        if composite(vertical, target, words, look, []):
             captioned = str(target)
     elif words:
-        captioned = auto_caption_clip(str(vertical), transcript, 0, item['duration'])
+        captioned = auto_caption_clip(str(vertical), subtitles, 0, item['duration'])
         if not captioned:
             raise ValueError('Default caption render failed.')
     final = folder / 'final.mp4'
