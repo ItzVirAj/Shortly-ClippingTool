@@ -18,6 +18,7 @@ Two render paths:
 """
 
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -123,30 +124,36 @@ def snap_segments(segments, transcript, source_duration):
     return snapped
 
 
+def timed_segment_words(segment):
+    """Keep provider timings, estimating from the segment only if none are usable."""
+    timed = []
+    for word in segment.get('words') or []:
+        try:
+            start, end = float(word['start']), float(word['end'])
+            if math.isfinite(start) and math.isfinite(end) and end > start and word['word'].strip():
+                timed.append({**word, 'start': start, 'end': end})
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+    if timed:
+        return timed
+    tokens = str(segment.get('text') or '').split()
+    try:
+        start, end = float(segment['start']), float(segment['end'])
+    except (KeyError, TypeError, ValueError):
+        return []
+    if not tokens or not math.isfinite(start) or not math.isfinite(end) or end <= start:
+        return []
+    step = (end - start) / len(tokens)
+    return [{'word': ' ' + token, 'start': start + i*step, 'end': start + (i+1)*step}
+            for i, token in enumerate(tokens)]
+
+
 def transcript_words(transcript):
     """Flatten a Whisper transcript to [{'w','s','e'}, ...] sorted by start."""
-    words = []
-    for segment in (transcript or {}).get("segments", []):
-        segment_words = segment.get("words") or []
-        if not segment_words:
-            tokens = str(segment.get("text") or "").split()
-            start = float(segment.get("start") or 0)
-            span = float(segment.get("end") or 0) - start
-            if tokens and span > 0:
-                segment_words = [{"word": token, "start": start + span*i/len(tokens),
-                                  "end": start + span*(i+1)/len(tokens)}
-                                 for i, token in enumerate(tokens)]
-        for w in segment_words:
-            try:
-                words.append({
-                    "w": str(w.get("word", "")).strip(),
-                    "s": float(w["start"]),
-                    "e": float(w["end"]),
-                })
-            except (KeyError, TypeError, ValueError):
-                continue
-    words.sort(key=lambda w: w["s"])
-    return words
+    words = [{'w': w['word'].strip(), 's': w['start'], 'e': w['end']}
+             for segment in (transcript or {}).get('segments', [])
+             for w in timed_segment_words(segment)]
+    return sorted(words, key=lambda w: w['s'])
 
 
 def virtual_transcript(transcript, segments):
@@ -159,12 +166,13 @@ def virtual_transcript(transcript, segments):
     this transcript with clip_start=0.
     """
     out_segments = []
+    source_words = transcript_words(transcript)
     offset = 0.0
     for seg in segments:
         seg_start, seg_end = float(seg["start"]), float(seg["end"])
         seg_duration = seg_end - seg_start
         words = []
-        for w in transcript_words(transcript):
+        for w in source_words:
             if w["e"] <= seg_start or w["s"] >= seg_end:
                 continue
             words.append({

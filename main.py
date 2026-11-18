@@ -2123,7 +2123,9 @@ def transcribe_video(video_path):
 
     print(f"   Detected language '{transcript['language']}', "
           f"{len(transcript['segments'])} segments")
+    from recut import timed_segment_words
     for segment in transcript['segments']:
+        segment['words'] = timed_segment_words(segment)
         # Print progress to keep user informed (and prevent timeouts feeling)
         print(f"   [{segment['start']:.2f}s -> {segment['end']:.2f}s] {segment['text']}")
 

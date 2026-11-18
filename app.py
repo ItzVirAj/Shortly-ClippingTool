@@ -1687,6 +1687,8 @@ def _reapply_captions(job_id, clip_index, video_path):
             transcript = _words_transcript(clip['caption_words'],
                                            transcript.get('language', 'en'))
             start, end = 0.0, transcript['segments'][0]['end']
+        if clip.get('captionLook'):
+            return _composite_saved_look(video_path, transcript, start, end, clip)
         if clip.get('caption_style'):
             return _restyle_captions(video_path, transcript, start, end,
                                      clip['caption_style'],
@@ -1791,10 +1793,22 @@ def _restyle_captions(video_path, transcript, start, end, style,
         return None
 
 
+def _composite_saved_look(path, transcript, start, end, clip):
+    look = Look.model_validate(clip['captionLook'])
+    relative = recut.virtual_transcript(transcript, [{'start': start, 'end': end}])
+    output = os.path.join(os.path.dirname(path), f'subtitled_{int(time.time())}_{os.path.basename(path)}')
+    stickers = [Sticker.model_validate(s) for s in clip.get('stickers', [])]
+    if composite_looks(path, output, recut.transcript_words(relative), look, stickers):
+        return output
+    return None
+
+
 def _recut_captioner(clip):
     """perform_recut's ``captioner`` for a clip whose captions were styled
     in the modal, or None for the default look. Edited words are not carried:
     their timings belong to the previous cut."""
+    if clip.get('captionLook'):
+        return lambda path, transcript, start, end: _composite_saved_look(path, transcript, start, end, clip)
     style = clip.get('caption_style')
     if not style:
         return None
@@ -6461,9 +6475,15 @@ async def get_clip_edl(job_id: str, clip_index: int, request: Request):
         current_file = _canonical_clip_file(output_dir, base_name, clip_index)
 
     preview = clip.get('editor_preview_url') or f'/videos/{job_id}/{current_file}'
-    candidate = _strip_burned_captions(output_dir, os.path.basename(preview), materialize=False)
+    candidate = _strip_watermark_copy(output_dir, os.path.basename(preview))
+    while True:
+        under = re.sub(r'^(txt|kick|youtube|twitch|instagram)_', '', candidate)
+        if under == candidate or not os.path.isfile(os.path.join(output_dir, under)):
+            break
+        candidate = under
+    candidate = _strip_burned_captions(output_dir, candidate, materialize=False)
     clean_url = None
-    if os.path.isfile(os.path.join(output_dir, candidate)):
+    if not re.match(r'^(subtitled_\d+_|txt_|(?:kick|youtube|twitch|instagram)_)', candidate) and os.path.isfile(os.path.join(output_dir, candidate)):
         clean_url = f"/videos/{job_id}/{await _deliver(request, job_id, candidate)}"
     total = recut.total_duration(segments)
     return {
@@ -7678,6 +7698,8 @@ async def add_subtitles(req: SubtitleRequest, request: Request):
             clips[req.clip_index]['video_url'] = f"/videos/{req.job_id}/{output_filename}"
             # The look (and edited words) the hook / edit / recut paths burn
             # again when they put captions back (_reapply_captions, #82).
+            clips[req.clip_index].pop('captionLook', None)
+            clips[req.clip_index].pop('look_pending', None)
             clips[req.clip_index]['caption_style'] = caption_style
             if caption_words:
                 clips[req.clip_index]['caption_words'] = caption_words
@@ -7753,6 +7775,8 @@ async def remove_subtitles(req: RemoveSubtitlesRequest, request: Request):
     if req.clip_index < len(job.get('result', {}).get('clips', [])):
         job['result']['clips'][req.clip_index]['video_url'] = new_url
     try:
+        if clips[req.clip_index].get('captionLook'):
+            clips[req.clip_index]['captionLook']['captionsEnabled'] = False
         clips[req.clip_index]['video_url'] = new_url
         data['shorts'] = clips
         write_json_atomic(json_files[0], data, indent=4)

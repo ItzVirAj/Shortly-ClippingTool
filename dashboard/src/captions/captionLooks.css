@@ -1,5 +1,21 @@
-@font-face{font-family:"Press Start 2P";src:url("/captions/PressStart2P-Regular.ttf")}
-@font-face{font-family:"DejaVu Sans Mono";src:url("/captions/DejaVuSansMono.ttf")}
-@font-face{font-family:"Montserrat ExtraBold";src:url("/fonts/Montserrat-ExtraBold.ttf");font-weight:800}
-.look-swatch{position:relative;display:block;container-type:inline-size;aspect-ratio:4/3;background:#282630 center/cover;border-radius:4px;overflow:hidden;margin-bottom:.25rem}
-.shortly-caption{position:absolute;z-index:8;pointer-events:none;left:50%;width:82%;text-align:center;line-height:1.18;overflow-wrap:anywhere;paint-order:stroke fill}
+.look-swatch {
+    position: relative;
+    display: block;
+    container-type: inline-size;
+    aspect-ratio: 4/3;
+    background: #282630 center/cover;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 0.25rem;
+}
+.shortly-caption {
+    position: absolute;
+    z-index: 8;
+    pointer-events: none;
+    left: 50%;
+    width: 82%;
+    text-align: center;
+    line-height: 1.18;
+    overflow-wrap: anywhere;
+    paint-order: stroke fill;
+}

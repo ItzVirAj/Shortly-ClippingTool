@@ -37,7 +37,10 @@ def render(item, root):
     subprocess.run(['ffmpeg', '-nostdin', '-loglevel', 'error', '-y', '-i', item['source'],
                     '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1',
                     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', str(vertical)], check=True)
-    transcript = transcribe_video(str(vertical))
+    audio_stream = subprocess.check_output([
+        'ffprobe', '-v', 'error', '-select_streams', 'a:0', '-show_entries',
+        'stream=index', '-of', 'csv=p=0', str(vertical)], text=True).strip()
+    transcript = transcribe_video(str(vertical)) if audio_stream else {'segments': [], 'language': 'und'}
     from caption_looks import Look, composite
     from recut import transcript_words
     words = transcript_words(transcript)

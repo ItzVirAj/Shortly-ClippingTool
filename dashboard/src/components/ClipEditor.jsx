@@ -190,6 +190,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
     const [markOut, setMarkOut] = useState(null);
 
     const videoRef = useRef(null);
+    const restorePreview = useRef(null);
     const sourceRef = useRef(null);
     const clipTrackRef = useRef(null);
     const sourceTrackRef = useRef(null);
@@ -279,10 +280,14 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
     }, [jobId, clipIndex]);
 
     const words = useMemo(() => (edl?.words || []), [edl]);
-    const previewFrame = useClipFrame(previewUrl);
+    const previewFrame = useClipFrame(edl?.caption_preview_url ? getApiUrl(edl.caption_preview_url) : previewUrl);
     const timedWords = useMemo(() => clipWords(words, segments), [words, segments]);
     const changeLook = next => {
-        if (!look && edl?.caption_preview_url) setPreviewUrl(getApiUrl(edl.caption_preview_url));
+        if (!look && edl?.caption_preview_url && previewUrl !== getApiUrl(edl.caption_preview_url)) {
+            if (videoRef.current) restorePreview.current = {time:videoRef.current.currentTime, playing:!videoRef.current.paused};
+            setPreviewUrl(getApiUrl(edl.caption_preview_url));
+            setCleanPreview(true);
+        }
         setLook(next);
         setReapplyCaptions(next.captionsEnabled);
     };
@@ -1075,6 +1080,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
             setFraming(data.framing || 'auto');
             setRenderedFrameType(frameType);
             setRenderedFrameGeometry([frameScale, frameX, frameY]);
+            setEdl(previous => ({...previous, caption_preview_url: data.editor_preview_url}));
             setSavedLook(look); setSavedStickers(stickers); setPendingLook(false); setApplyAll(false);
             setRenderedCaptions(reapplyCaptions);
             setRenderedTextOverlays(textOverlays.map((t) => ({ ...t })));
@@ -1533,7 +1539,15 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                             <video
                                 ref={videoRef}
                                 src={previewUrl}
-                                onLoadedMetadata={(e) => setVideoAspect(e.currentTarget.videoWidth / e.currentTarget.videoHeight || 9 / 16)}
+                                onLoadedMetadata={({currentTarget: video}) => {
+                                    setVideoAspect(video.videoWidth / video.videoHeight || 9 / 16);
+                                    if (restorePreview.current) {
+                                        const {time, playing} = restorePreview.current;
+                                        restorePreview.current = null;
+                                        video.currentTime = Math.min(time, video.duration);
+                                        if (playing) video.play().catch(() => {});
+                                    }
+                                }}
                                 controls
                                 playsInline
                                 className="w-full h-full object-contain"
@@ -1543,7 +1557,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                                 onPause={stopPlayLoop}
                             />
 
-                            <CaptionLayer look={look} words={timedWords} time={playhead}/>
+                            {edl?.caption_preview_url && <CaptionLayer look={look} words={timedWords} time={playhead}/>}
                             <StickerLayer stickers={stickers} time={playhead} change={changeSticker} select={selectSticker}/>
                             {/* Live Interactive Draggable Brand Frame Overlay */}
                             {frameType && (cleanPreview || frameType !== renderedFrameType || dirty) && (
@@ -1689,6 +1703,9 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                                     }}
                                 />
                             ))}
+                            {stickers.map(item => <span key={item.id} title={item.asset}
+                                className="absolute bottom-0 h-1.5 bg-brass/80 pointer-events-none"
+                                style={{left:100*item.start/clipTrackSeconds+'%', width:100*(item.end-item.start)/clipTrackSeconds+'%'}}/>)}
                             {/* A handle, not a hairline: the same solid, grabbable
                                 shape the source track uses, so this reads as
                                 something you drive rather than a marker that
@@ -1830,6 +1847,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                                 <div className="flex gap-2">{['Captions','Memes/Emojis'].map(tab =>
                                     <button key={tab} type="button" aria-pressed={captionTab===tab} className={captionTab===tab?'btn-primary':'btn-ghost'} onClick={()=>setCaptionTab(tab)}>{tab}</button>)}</div>
                                 {captionTab==='Captions' ? <>
+                                    {look && !edl?.caption_preview_url && <p className="text-xs text-muted">Re-render once to rebuild the clean preview for this export.</p>}
                                     <LookPicker frame={previewFrame} look={look} onChange={changeLook}/>
                                     {look && <label className="text-xs"><input type="checkbox" checked={applyAll} onChange={e=>setApplyAll(e.target.checked)}/> Save this look for every clip in this job</label>}
                                 </> : <StickerPanel stickers={stickers} setStickers={setStickers} selected={selectedSticker} select={selectSticker}

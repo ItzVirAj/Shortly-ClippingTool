@@ -17,7 +17,8 @@
     "animation": "pop",
     "italic": false,
     "id": "hype",
-    "name": "Hype"
+    "name": "Hype",
+    "fontUrl": "/fonts/Montserrat-ExtraBold.ttf"
   },
   {
     "font": "Montserrat ExtraBold",
@@ -37,7 +38,8 @@
     "animation": "none",
     "italic": false,
     "id": "trio",
-    "name": "Trio"
+    "name": "Trio",
+    "fontUrl": "/fonts/Montserrat-ExtraBold.ttf"
   },
   {
     "font": "Montserrat ExtraBold",
@@ -57,7 +59,8 @@
     "animation": "none",
     "italic": true,
     "id": "beast",
-    "name": "Beast"
+    "name": "Beast",
+    "fontUrl": "/fonts/Montserrat-ExtraBold.ttf"
   },
   {
     "font": "Montserrat ExtraBold",
@@ -77,7 +80,8 @@
     "animation": "none",
     "italic": false,
     "id": "spotlight",
-    "name": "Spotlight"
+    "name": "Spotlight",
+    "fontUrl": "/fonts/Montserrat-ExtraBold.ttf"
   },
   {
     "font": "Montserrat ExtraBold",
@@ -99,7 +103,8 @@
     "gradient": "#ff418a",
     "underline": "#ff418a",
     "id": "vice",
-    "name": "Vice"
+    "name": "Vice",
+    "fontUrl": "/fonts/Montserrat-ExtraBold.ttf"
   },
   {
     "font": "Montserrat ExtraBold",
@@ -119,7 +124,8 @@
     "animation": "punch",
     "italic": false,
     "id": "punch",
-    "name": "Punch"
+    "name": "Punch",
+    "fontUrl": "/fonts/Montserrat-ExtraBold.ttf"
   },
   {
     "font": "Montserrat ExtraBold",
@@ -139,13 +145,14 @@
     "animation": "none",
     "italic": false,
     "id": "neon",
-    "name": "Neon"
+    "name": "Neon",
+    "fontUrl": "/fonts/Montserrat-ExtraBold.ttf"
   },
   {
-    "font": "Montserrat ExtraBold",
-    "file": "Montserrat-ExtraBold.ttf",
-    "size": 74,
-    "weight": 800,
+    "font": "Bangers",
+    "file": "Bangers-Regular.ttf",
+    "size": 90,
+    "weight": 400,
     "case": "normal",
     "fill": "#ff3939",
     "outline": "#141414",
@@ -157,9 +164,10 @@
     "words": 3,
     "highlight": "#ffe137",
     "animation": "none",
-    "italic": true,
+    "italic": false,
     "id": "comic",
-    "name": "Comic"
+    "name": "Comic",
+    "fontUrl": "/captions/Bangers-Regular.ttf"
   },
   {
     "font": "DejaVu Sans Mono",
@@ -179,7 +187,8 @@
     "animation": "typewriter",
     "italic": false,
     "id": "typed",
-    "name": "Typed"
+    "name": "Typed",
+    "fontUrl": "/captions/DejaVuSansMono.ttf"
   },
   {
     "font": "Montserrat ExtraBold",
@@ -199,7 +208,8 @@
     "animation": "sweep",
     "italic": false,
     "id": "karaoke",
-    "name": "Karaoke"
+    "name": "Karaoke",
+    "fontUrl": "/fonts/Montserrat-ExtraBold.ttf"
   },
   {
     "font": "Montserrat ExtraBold",
@@ -219,7 +229,8 @@
     "animation": "none",
     "italic": false,
     "id": "clean",
-    "name": "Clean"
+    "name": "Clean",
+    "fontUrl": "/fonts/Montserrat-ExtraBold.ttf"
   },
   {
     "font": "Press Start 2P",
@@ -239,6 +250,7 @@
     "animation": "none",
     "italic": false,
     "id": "pixel",
-    "name": "Pixel"
+    "name": "Pixel",
+    "fontUrl": "/captions/PressStart2P-Regular.ttf"
   }
 ]
