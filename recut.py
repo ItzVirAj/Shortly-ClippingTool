@@ -127,7 +127,16 @@ def transcript_words(transcript):
     """Flatten a Whisper transcript to [{'w','s','e'}, ...] sorted by start."""
     words = []
     for segment in (transcript or {}).get("segments", []):
-        for w in segment.get("words", []) or []:
+        segment_words = segment.get("words") or []
+        if not segment_words:
+            tokens = str(segment.get("text") or "").split()
+            start = float(segment.get("start") or 0)
+            span = float(segment.get("end") or 0) - start
+            if tokens and span > 0:
+                segment_words = [{"word": token, "start": start + span*i/len(tokens),
+                                  "end": start + span*(i+1)/len(tokens)}
+                                 for i, token in enumerate(tokens)]
+        for w in segment_words:
             try:
                 words.append({
                     "w": str(w.get("word", "")).strip(),
