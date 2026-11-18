@@ -26,6 +26,7 @@ export default function YouTubeSetupModal({
 }) {
   const [currentStep, setCurrentStep] = useState(1);
   const [clientId, setClientId] = useState('');
+  const [redirectUri, setRedirectUri] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -54,6 +55,7 @@ export default function YouTubeSetupModal({
     apiFetch('/api/youtube/config')
       .then((r) => (r.ok ? r.json() : null))
       .then((cfg) => {
+        setRedirectUri(cfg?.redirect_uri || '');
         if (cfg && cfg.client_id) {
           setClientId(cfg.client_id);
         }
@@ -181,8 +183,8 @@ export default function YouTubeSetupModal({
     },
     {
       id: 4,
-      title: 'Desktop Credentials',
-      desc: 'Create OAuth 2.0 Client ID (Desktop App)',
+      title: 'Web Credentials',
+      desc: 'Create OAuth 2.0 Client ID (Web application)',
     },
     {
       id: 5,
@@ -447,14 +449,14 @@ export default function YouTubeSetupModal({
             </div>
           )}
 
-          {/* STEP 4: Desktop Credentials */}
+          {/* STEP 4: Web Credentials */}
           {currentStep === 4 && (
             <div className="space-y-5 animate-fade">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h3 className="text-xl font-bold text-white mb-1">Step 4: Create OAuth 2.0 Client ID</h3>
                   <p className="text-sm text-white/70 leading-relaxed">
-                    Generate the Client ID and Client Secret keys specifically for desktop apps.
+                    Generate the Client ID and Client Secret for Shortly’s server callback.
                   </p>
                 </div>
                 <a
@@ -477,9 +479,10 @@ export default function YouTubeSetupModal({
                 </div>
 
                 <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] space-y-2">
-                  <div className="text-sm font-semibold text-white">2. Application Type: Select "Desktop app"</div>
+                  <div className="text-sm font-semibold text-white">2. Application Type: Select "Web application"</div>
                   <p className="text-xs text-white/60">
-                    Important: Choose <strong className="text-white">Desktop app</strong> (do not choose Web application). Name it "Shortly Desktop" and click Create.
+                    Name the client "Shortly Local". Under Authorized redirect URIs, click Add URI and paste this exact address before clicking Create.
+                    <code className="block mt-2 break-all select-all">{redirectUri || 'Open Google error details to find the redirect_uri for this request.'}</code>
                   </p>
                 </div>
 
@@ -579,7 +582,7 @@ export default function YouTubeSetupModal({
                   What to expect when connecting:
                 </div>
                 <p>
-                  Because this is your personal desktop app, Google may display a screen saying <em>"Google hasn't verified this app"</em>.
+                  Because this is your personal app, Google may display a screen saying <em>"Google hasn't verified this app"</em>.
                 </p>
                 <p className="text-white/90">
                   👉 Click <strong className="text-white">"Advanced"</strong> at the bottom left, then click <strong className="text-pink-300">"Go to Shortly (unsafe)"</strong> to authorize your channel. This is standard for self-hosted OAuth.

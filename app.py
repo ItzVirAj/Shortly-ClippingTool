@@ -8727,8 +8727,12 @@ import yt_oauth
 youtube_publish_jobs: Dict[str, Dict[str, Any]] = {}
 
 
+def _youtube_redirect_uri(request: Request) -> str:
+    return str(request.url.replace(path="/api/youtube/callback", query=""))
+
+
 @app.get("/api/youtube/config")
-async def youtube_get_config():
+async def youtube_get_config(request: Request):
     """Return whether YouTube Client credentials are configured."""
     client_id, _ = yt_oauth.get_client_credentials()
     tokens = yt_oauth.load_tokens()
@@ -8736,6 +8740,7 @@ async def youtube_get_config():
     is_connected = bool(tokens and tokens.get("access_token"))
     return {
         "has_credentials": has_creds,
+        "redirect_uri": _youtube_redirect_uri(request),
         "client_id": client_id if client_id else "",
         "connected": is_connected,
         "channel": tokens.get("channel") if tokens else None,
@@ -8774,9 +8779,7 @@ async def youtube_auth_url(request: Request):
         )
 
     # Use incoming host to construct redirect URI
-    base_host = request.headers.get("host") or "127.0.0.1:8000"
-    scheme = "https" if request.url.scheme == "https" else "http"
-    redirect_uri = f"{scheme}://{base_host}/api/youtube/callback"
+    redirect_uri = _youtube_redirect_uri(request)
 
     try:
         url = yt_oauth.build_auth_url(redirect_uri=redirect_uri)
@@ -8819,9 +8822,7 @@ async def youtube_oauth_callback(request: Request, code: Optional[str] = None, e
     if not code:
         raise HTTPException(status_code=400, detail="Missing authorization code.")
 
-    base_host = request.headers.get("host") or "127.0.0.1:8000"
-    scheme = "https" if request.url.scheme == "https" else "http"
-    redirect_uri = f"{scheme}://{base_host}/api/youtube/callback"
+    redirect_uri = _youtube_redirect_uri(request)
 
     try:
         await yt_oauth.exchange_code(code=code, redirect_uri=redirect_uri)
